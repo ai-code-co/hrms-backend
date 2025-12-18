@@ -14,7 +14,7 @@ from auth_app.emails import send_password_reset_email
 from rest_framework_simplejwt.views import TokenObtainPairView
 from rest_framework.permissions import AllowAny,IsAdminUser, IsAuthenticated
 from rest_framework.generics import CreateAPIView
-from .serializers import AdminCreateUserSerializer, ChangePasswordSerializer, CustomTokenObtainPairSerializer
+from .serializers import AdminCreateUserSerializer, ChangePasswordSerializer, CustomTokenObtainPairSerializer, SetPasswordSerializer
 from .models import User
 from rest_framework.views import APIView
 from rest_framework.response import Response
@@ -64,6 +64,9 @@ class ForgotPasswordView(APIView):
 # SET PASSWORD (First login OR reset)
 # ------------------------------------------------------------------
 
+
+
+
 class SetPasswordView(APIView):
     """
     Sets password using a secure token.
@@ -76,24 +79,59 @@ class SetPasswordView(APIView):
     permission_classes = []
 
     def post(self, request):
+        print("🔵 STEP 1: Entered SetPasswordView")
+
+        print("🔵 STEP 2: Raw request.data =", request.data)
+
         token = request.data.get("token")
         password = request.data.get("password")
 
+        print("🔵 STEP 3: token =", token)
+        print("🔵 STEP 4: raw password repr =", repr(password))
+
         user_id = verify_password_setup_token(token)
 
+        print("🔵 STEP 5: user_id from token =", user_id)
+
         if not user_id:
+            print("🔴 ERROR: Token invalid or expired")
             return Response(
                 {"error": "Invalid or expired token"},
                 status=status.HTTP_400_BAD_REQUEST
             )
 
         user = get_object_or_404(User, id=user_id)
+
+        print("🔵 STEP 6: User fetched")
+        print("   username =", user.username)
+        print("   email =", user.email)
+        print("   is_active (before) =", user.is_active)
+        print("   is_verified (before) =", getattr(user, "is_verified", None))
+
         user.set_password(password)
+        print("🔵 STEP 7: Password set using set_password()")
+
         user.is_active = True
         user.is_verified = True
+
+        print("🔵 STEP 8: Flags updated")
+        print("   is_active (after) =", user.is_active)
+        print("   is_verified (after) =", user.is_verified)
+
         user.save()
+        print("🔵 STEP 9: User saved to database")
+
+        # 🔥 CRITICAL VERIFICATION
+        password_check = user.check_password(password)
+        print("🔵 STEP 10: check_password result =", password_check, password)
+
+        if not password_check:
+            print("🚨 CRITICAL BUG: Password saved does NOT match input!")
+
+        print("🟢 STEP 11: SetPasswordView completed successfully")
 
         return Response({"message": "Password set successfully"})
+
 
 # ------------------------------------------------------------------
 # CHANGE PASSWORD (Logged-in user)
