@@ -4,38 +4,59 @@ from .models import User
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 from rest_framework.exceptions import AuthenticationFailed
 from .emails import send_verification_email
+import logging
 
+logger = logging.getLogger(__name__)
 
 class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
 
     def validate(self, attrs):
+        # 🚨 NEVER log attrs["password"]
+        logger.info(
+            "Login attempt for username=%s",
+            attrs.get("username") or attrs.get("email")
+        )
+
         data = super().validate(attrs)
         user = self.user
 
-        # 🔐 Allow admins to login without verification
+        logger.info(
+            "User resolved: id=%s email=%s is_active=%s is_verified=%s is_staff=%s is_first_login=%s",
+            user.id,
+            user.email,
+            user.is_active,
+            getattr(user, "is_verified", None),
+            user.is_staff,
+            getattr(user, "is_first_login", None),
+        )
+
+        # 🔐 Allow admins
         if user.is_staff or user.is_superuser:
+            logger.info("Admin login allowed: %s", user.email)
             return data
 
-
-        # 🔒 Block if account is inactive
+        # 🔒 Inactive account
         if not user.is_active:
+            logger.warning("Inactive login blocked: %s", user.email)
             raise AuthenticationFailed("Account is inactive. Please verify your email.")
 
-        # 🔒 Block if email not verified
+        # 🔒 Email not verified
         if not getattr(user, "is_verified", False):
+            logger.warning("Unverified email login blocked: %s", user.email)
             raise AuthenticationFailed("Email not verified. Please check your email.")
-        
-        # 👇 SEND FIRST LOGIN FLAG
+
+        # 👇 Send first login flag
         data["is_first_login"] = user.is_first_login
 
-        # 👇 AFTER FIRST LOGIN, FLIP FLAG
+        # 👇 Flip flag
         if user.is_first_login:
+            logger.info("First login detected, flipping flag for %s", user.email)
             user.is_first_login = False
             user.save(update_fields=["is_first_login"])
 
+        logger.info("Login successful: %s", user.email)
         return data
 
-       
 
 class AdminCreateUserSerializer(serializers.ModelSerializer):
     password = serializers.CharField(write_only=True)
