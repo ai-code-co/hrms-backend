@@ -13,6 +13,11 @@ https://docs.djangoproject.com/en/6.0/ref/settings/
 import os
 from pathlib import Path
 import dj_database_url
+from dotenv import load_dotenv
+
+load_dotenv()
+
+
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -38,7 +43,7 @@ INSTALLED_APPS = [
     'rest_framework_simplejwt',
     'auth_app.apps.AuthAppConfig',
     "corsheaders",
-    # 'auth_app',
+    'anymail',
     'django.contrib.admin',
     'django.contrib.auth',
     'django.contrib.contenttypes',
@@ -46,8 +51,6 @@ INSTALLED_APPS = [
     'django.contrib.messages',
     'django.contrib.staticfiles',
 ]
-
-
 
 MIDDLEWARE = [
     "corsheaders.middleware.CorsMiddleware",
@@ -155,3 +158,20 @@ USE_TZ = True
 # https://docs.djangoproject.com/en/6.0/howto/static-files/
 
 STATIC_URL = 'static/'
+
+
+# email
+print('APi key',os.getenv("MAILGUN_API_KEY"))
+ANYMAIL = {
+    # (exact settings here depend on your ESP...)
+   "SENDINBLUE_API_KEY": os.getenv("MAILGUN_API_KEY"),
+  
+  
+}
+EMAIL_BACKEND = "anymail.backends.sendinblue.EmailBackend"
+
+DEFAULT_FROM_EMAIL = "HRMS <devpython549@gmail.com>"
+
+print("EMAIL USER:", DEFAULT_FROM_EMAIL)
+print("EMAIL BACKEND:", EMAIL_BACKEND)
+
