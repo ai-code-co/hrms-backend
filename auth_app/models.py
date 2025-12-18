@@ -8,6 +8,7 @@ class User(AbstractUser):
     email = models.EmailField(unique=True)
     # ⚠️ is_active already exists in AbstractUser
     is_verified = models.BooleanField(default=False)
+    is_first_login = models.BooleanField(default=True)  # 👈 NEW
 
     USERNAME_FIELD = "username"   # login remains SAME
     REQUIRED_FIELDS = ["email", "first_name", "last_name"]

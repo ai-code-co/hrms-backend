@@ -36,6 +36,7 @@ INSTALLED_APPS = [
     'auth_app.apps.AuthAppConfig',
     "corsheaders",
     # 'auth_app',
+    'anymail',
     'departments.apps.DepartmentsConfig',
     'employees.apps.EmployeesConfig',
     'django.contrib.admin',
@@ -45,8 +46,6 @@ INSTALLED_APPS = [
     'django.contrib.messages',
     'django.contrib.staticfiles',
 ]
-
-
 
 MIDDLEWARE = [
     "corsheaders.middleware.CorsMiddleware",
@@ -185,3 +184,20 @@ USE_TZ = True
 
 # Base URL for email verification links
 BASE_URL = os.environ.get('BASE_URL', 'http://127.0.0.1:8000')
+
+
+# email
+print('APi key',os.getenv("MAILGUN_API_KEY"))
+ANYMAIL = {
+    # (exact settings here depend on your ESP...)
+   "SENDINBLUE_API_KEY": os.getenv("MAILGUN_API_KEY"),
+  
+  
+}
+EMAIL_BACKEND = "anymail.backends.sendinblue.EmailBackend"
+
+DEFAULT_FROM_EMAIL = "HRMS <devpython549@gmail.com>"
+
+print("EMAIL USER:", DEFAULT_FROM_EMAIL)
+print("EMAIL BACKEND:", EMAIL_BACKEND)
+
