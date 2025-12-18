@@ -8,5 +8,5 @@ urlpatterns = [
     path("verify-email/<str:token>/", VerifyEmailView.as_view()),
     path("set-password/", SetPasswordView.as_view()),
     path("change-password/", ChangePasswordView.as_view()),
-     path("forgot-password/", ForgotPasswordView.as_view()),
+    path("forgot-password/", ForgotPasswordView.as_view()),
 ]
