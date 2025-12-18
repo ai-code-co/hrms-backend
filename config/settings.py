@@ -47,6 +47,10 @@ INSTALLED_APPS = [
     'django.contrib.staticfiles',
 ]
 
+CORS_ALLOWED_ORIGINS = [
+    "https://hrms-frontend-wheat.vercel.app",
+]
+
 MIDDLEWARE = [
     "corsheaders.middleware.CorsMiddleware",
     "django.middleware.security.SecurityMiddleware",
@@ -88,6 +92,7 @@ except ImportError:
 
 ROOT_URLCONF = 'config.urls'
 
+CORS_ALLOW_CREDENTIALS = True
 
 
 TEMPLATES = [
@@ -110,7 +115,9 @@ CORS_ALLOW_ALL_ORIGINS = os.environ.get('CORS_ALLOW_ALL_ORIGINS', 'False') == 'T
 CORS_ALLOW_CREDENTIALS = os.environ.get('CORS_ALLOW_CREDENTIALS', 'True') == 'True'
 
 # For production, specify allowed origins (comma-separated)
-CORS_ALLOWED_ORIGINS = os.environ.get('CORS_ALLOWED_ORIGINS', '').split(',') if os.environ.get('CORS_ALLOWED_ORIGINS') else []
+CORS_ALLOWED_ORIGINS = [
+    "https://hrms-frontend-wheat.vercel.app",
+]
 
 WSGI_APPLICATION = 'config.wsgi.application'
 
