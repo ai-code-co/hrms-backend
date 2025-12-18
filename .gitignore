@@ -54,3 +54,7 @@ Thumbs.db
 # Render
 .render/
 
+# Environment variables
+.env
+.env.*
+
