@@ -41,7 +41,8 @@ HRMS Team
 
 def send_verification_email(user):
     token = generate_email_token(user.id)
-    verify_url = f"http://127.0.0.1:8000/auth/verify-email/{token}/"
+    base_url = os.environ.get('BASE_URL', 'http://127.0.0.1:8000')
+    verify_url = f"{base_url}/auth/verify-email/{token}/"
 
     subject = "Verify your HRMS account"
 
