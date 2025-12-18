@@ -1,3 +1,13 @@
+"""
+emails.py
+
+All outbound emails live here.
+Keeping email logic separate makes:
+- testing easier
+- security audits cleaner
+- future provider changes simpler
+"""
+
 import os
 from django.core.mail import send_mail
 from django.conf import settings
@@ -5,7 +15,13 @@ from .utils import generate_email_token, generate_password_reset_token
 from dotenv import load_dotenv
 
 load_dotenv()
+"""
+    Sends password reset email for forgot-password flow.
 
+    Security:
+    - Email sent only if user exists
+    - API response never reveals existence
+    """
 
 def send_password_reset_email(user):
     token = generate_password_reset_token(user.id)
@@ -38,7 +54,14 @@ HRMS Team
         fail_silently=False,
     )
 
+"""
+    Sends email verification link when admin creates user.
 
+    The user:
+    - cannot login
+    - cannot set password
+    until this email is verified.
+    """
 def send_verification_email(user):
     token = generate_email_token(user.id)
     base_url = os.environ.get('BASE_URL', 'http://127.0.0.1:8000')
