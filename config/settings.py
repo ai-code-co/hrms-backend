@@ -155,6 +155,7 @@ DATABASES = {
     }
 }
 
+DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
@@ -213,3 +214,6 @@ DEFAULT_FROM_EMAIL = "HRMS <devpython549@gmail.com>"
 print("EMAIL USER:", DEFAULT_FROM_EMAIL)
 print("EMAIL BACKEND:", EMAIL_BACKEND)
 
+
+
+CSRF_TRUSTED_ORIGINS = ["https://*.onrender.com",  "https://hrms-frontend-wheat.vercel.app",]
