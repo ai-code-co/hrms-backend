@@ -8,6 +8,78 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+from rest_framework import serializers
+from .models import User
+
+
+
+class AdminCreateUserSerializer(serializers.ModelSerializer):
+    password = serializers.CharField(
+        write_only=True,
+        min_length=8
+    )
+
+    class Meta:
+        model = User
+        fields = [
+            "username",
+            "email",
+            "first_name",
+            "last_name",
+            "password",
+            "phone_number",
+            "gender",
+            "job_title",
+            "department",
+        ]
+
+    def create(self, validated_data):
+        password = validated_data.pop("password")
+
+        user = User.objects.create(
+            **validated_data,
+            is_active=True,
+            is_verified=True,      # ✅ change if you still want email verify
+            is_first_login=True
+        )
+
+        user.set_password(password)
+        user.save()
+
+        # Optional: notify user
+        # send_verification_email(user)
+
+        return user
+
+class UserProfileSerializer(serializers.ModelSerializer):
+    photo = serializers.SerializerMethodField()
+
+    class Meta:
+        model = User
+        fields = [
+            "id",
+            "username",
+            "email",
+            "first_name",
+            "last_name",
+            "photo",
+            "phone_number",
+            "gender",
+            "job_title",
+            "department",
+            "is_active",
+            "is_verified",
+            "is_first_login",
+            "date_joined",
+        ]
+
+    def get_photo(self, obj):
+        request = self.context.get("request")
+        if obj.photo and request:
+            return request.build_absolute_uri(obj.photo.url)
+        return None
+
+
 class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
 
     def validate(self, attrs):

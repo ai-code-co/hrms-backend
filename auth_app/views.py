@@ -25,8 +25,31 @@ from rest_framework import status
 from .utils import verify_password_setup_token
 from rest_framework_simplejwt.views import TokenRefreshView
 from dotenv import load_dotenv
+from .serializers import UserProfileSerializer
 
 load_dotenv()
+
+# ------------------------------------------------------------------
+# User profile creation
+# ------------------------------------------------------------------
+class AdminCreateUserView(CreateAPIView):
+    queryset = User.objects.all()
+    serializer_class = AdminCreateUserSerializer
+    permission_classes = [IsAdminUser]
+
+# ------------------------------------------------------------------
+# User profile
+# ------------------------------------------------------------------
+
+class UserProfileView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        serializer = UserProfileSerializer(
+            request.user,
+            context={"request": request}
+        )
+        return Response(serializer.data)
 
 
 # ------------------------------------------------------------------
@@ -84,7 +107,8 @@ class SetPasswordView(APIView):
         print("🔵 STEP 2: Raw request.data =", request.data)
 
         token = request.data.get("token")
-        password = request.data.get("password")
+        # password = request.data.get("password")
+        password = request.data.get("new_password")
 
         print("🔵 STEP 3: token =", token)
         print("🔵 STEP 4: raw password repr =", repr(password))

@@ -6,20 +6,32 @@ from django.db import models
 
 class User(AbstractUser):
     email = models.EmailField(unique=True)
-    # ⚠️ is_active already exists in AbstractUser
-    is_verified = models.BooleanField(default=False)
-    is_first_login = models.BooleanField(default=True)  
 
-    USERNAME_FIELD = "username"   # login remains SAME
+    # Auth / status
+    is_verified = models.BooleanField(default=False)
+    is_first_login = models.BooleanField(default=True)
+
+    # Profile fields
+    photo = models.ImageField(upload_to="users/photos/", null=True, blank=True)
+    phone_number = models.CharField(max_length=15, null=True, blank=True)
+
+    GENDER_CHOICES = (
+        ("M", "Male"),
+        ("F", "Female"),
+        ("O", "Other"),
+    )
+    gender = models.CharField(
+        max_length=1,
+        choices=GENDER_CHOICES,
+        null=True,
+        blank=True
+    )
+
+    job_title = models.CharField(max_length=100, null=True, blank=True)
+    department = models.CharField(max_length=100, null=True, blank=True)
+
+    USERNAME_FIELD = "username"
     REQUIRED_FIELDS = ["email", "first_name", "last_name"]
 
     def __str__(self):
         return self.username
-class Test_User(models.Model):
-    name = models.CharField(max_length=100)
-    district = models.CharField(max_length=100)
-    state = models.CharField(max_length=100)
-    country = models.CharField(max_length=100)  
-
-    def __str__(self):
-        return self.name
