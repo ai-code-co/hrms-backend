@@ -26,3 +26,4 @@ class HolidayModelTest(TestCase):
         expected = f"{self.holiday.name} ({self.holiday.date})"
         self.assertEqual(str(self.holiday), expected)
 
+

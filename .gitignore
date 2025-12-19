@@ -1,16 +1,15 @@
+# =========================
 # Python
+# =========================
 __pycache__/
 ../__pycache__/
-__pycache__/
-*.pyc
-*.pyo
-*.pyd
 *.py[cod]
 *$py.class
 *.so
 .Python
+
+# Build / packaging
 build/
-develop-eggs/
 dist/
 downloads/
 eggs/
@@ -24,47 +23,56 @@ wheels/
 *.egg-info/
 .installed.cfg
 *.egg
-data.json
-.env
-# Virtual Environment
+
+# =========================
+# Virtual Environments
+# =========================
 venv/
 env/
 ENV/
-.venv
+.venv/
 
+# =========================
 # Django
+# =========================
 *.log
 local_settings.py
 db.sqlite3
-db.sqlite3*
 db.sqlite3-journal
 /staticfiles/
 /media/
 
-# Environment variables
+# =========================
+# Environment Variables
+# =========================
 .env
 .env.*
-.env.prod
 .env.local
+.env.prod
 
-# IDE
+# =========================
+# IDE / Editors
+# =========================
 .vscode/
-.cursor/
 .idea/
+.cursor/
 *.swp
 *.swo
 *~
 
-# OS
+# =========================
+# OS Files
+# =========================
 .DS_Store
 Thumbs.db
 
-# Render
+# =========================
+# Deployment / Hosting
+# =========================
 .render/
+.railway
 
-# Environment variables
-.env
-.env.*
-
-__pycache__/
-*.pyc
+# =========================
+# Project-specific
+# =========================
+data.json

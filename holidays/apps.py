@@ -6,3 +6,4 @@ class HolidaysConfig(AppConfig):
     name = 'holidays'
     verbose_name = 'Holidays'
 
+

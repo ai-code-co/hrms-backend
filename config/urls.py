@@ -29,6 +29,7 @@ urlpatterns = [
     path("api/", include("employees.urls")),
     path("table-data/", TableDataView.as_view()),
     path("api/", include("holidays.urls")),
+    path("api/", include("inventory.urls")),
 ]
 
 # Serve media files in development

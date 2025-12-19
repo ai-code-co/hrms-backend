@@ -69,3 +69,4 @@ class Holiday(models.Model):
         # You can add more validation logic here if needed
         pass
 
+
