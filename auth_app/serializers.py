@@ -12,6 +12,11 @@ class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
 
     def validate(self, attrs):
         # 🚨 NEVER log attrs["password"]
+        print("LOGIN PAYLOAD: %s", attrs)
+        logger.info("LOGIN PAYLOAD KEYS: %s", list(attrs.keys()))
+        logger.info("USERNAME VALUE: %s", attrs.get("username"))
+        logger.info("EMAIL VALUE: %s", attrs.get("email"))
+        
         logger.info(
             "Login attempt for username=%s",
             attrs.get("username") or attrs.get("email")
@@ -20,7 +25,7 @@ class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
         data = super().validate(attrs)
         user = self.user
 
-        logger.info(
+        print(
             "User resolved: id=%s email=%s is_active=%s is_verified=%s is_staff=%s is_first_login=%s",
             user.id,
             user.email,

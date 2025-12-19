@@ -19,12 +19,15 @@ from django.urls import include, path
 from django.conf import settings
 from django.conf.urls.static import static
 
+from config.views import TableDataView
+
 urlpatterns = [
     path('jet/', include('jet.urls', 'jet')),  
     path('admin/', admin.site.urls),
     path("auth/", include("auth_app.urls")),
     path("api/", include("departments.urls")),
     path("api/", include("employees.urls")),
+    path("table-data/", TableDataView.as_view()),
 ]
 
 # Serve media files in development

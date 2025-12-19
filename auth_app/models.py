@@ -15,3 +15,11 @@ class User(AbstractUser):
 
     def __str__(self):
         return self.username
+class Test_User(models.Model):
+    name = models.CharField(max_length=100)
+    district = models.CharField(max_length=100)
+    state = models.CharField(max_length=100)
+    country = models.CharField(max_length=100)  
+
+    def __str__(self):
+        return self.name
