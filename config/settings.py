@@ -153,10 +153,15 @@ DATABASES = {
         'NAME': os.getenv("DB_NAME"),
         'USER': os.getenv("DB_USER"),
         'PASSWORD': os.getenv("DB_PASSWORD"),
-        'HOST': os.getenv("DB_HOST","localhost"),
+        'HOST': os.getenv("DB_HOST", "localhost"),
         'PORT': os.getenv("DB_PORT", "3306"),
     }
 }
+
+# Update database configuration from DATABASE_URL if available (for Render/Neon)
+import dj_database_url
+db_from_env = dj_database_url.config(conn_max_age=500)
+DATABASES['default'].update(db_from_env)
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
