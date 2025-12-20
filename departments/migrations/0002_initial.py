@@ -22,7 +22,7 @@ class Migration(migrations.Migration):
         migrations.AddField(
             model_name='designation',
             name='department',
-            field=models.ForeignKey(help_text='Department this designation belongs to', on_delete=django.db.models.deletion.CASCADE, related_name='designations', to='departments.department'),
+            field=models.ForeignKey(db_constraint=False, db_index=False, help_text='Department this designation belongs to', on_delete=django.db.models.deletion.CASCADE, related_name='designations', to='departments.department'),
         ),
         migrations.AddIndex(
             model_name='department',
