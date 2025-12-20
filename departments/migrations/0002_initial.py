@@ -17,7 +17,7 @@ class Migration(migrations.Migration):
         migrations.AddField(
             model_name='department',
             name='manager',
-            field=models.ForeignKey(blank=True, help_text='Department manager', null=True, on_delete=django.db.models.deletion.SET_NULL, related_name='managed_departments', to='employees.employee'),
+            field=models.ForeignKey(blank=True, db_constraint=False, help_text='Department manager', null=True, on_delete=django.db.models.deletion.SET_NULL, related_name='managed_departments', to='employees.employee'),
         ),
         migrations.AddField(
             model_name='designation',
