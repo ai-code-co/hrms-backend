@@ -1,7 +1,7 @@
 # Leaves Module - API Documentation
 
 ## Overview
-The Leaves module provides a complete leave management system for the HRMS application. It includes day calculation, leave application, and document upload functionality.
+The Leaves module provides a complete leave management system for the HRMS application. It includes day calculation, leave application, document upload functionality, and **comprehensive leave balance tracking**.
 
 ---
 
@@ -9,6 +9,11 @@ The Leaves module provides a complete leave management system for the HRMS appli
 
 ✅ **Working Day Calculator** - Automatically calculates working days, weekends, and holidays  
 ✅ **Leave Application** - Submit and manage leave requests  
+✅ **Leave Balance Tracking** - Real-time balance validation and tracking  
+✅ **Admin-Controlled Quotas** - HR sets monthly/yearly leave allocations  
+✅ **Restricted Holidays (RH)** - Separate RH quota and tracking  
+✅ **Carry Forward Support** - Unused leaves can be carried to next year  
+✅ **Auto-Balance Updates** - Balance updates on approval/rejection  
 ✅ **Document Upload** - Attach supporting documents to leave requests  
 ✅ **Holiday Integration** - Integrates with the existing Holiday system  
 ✅ **JWT Authentication** - Secure, token-based authentication  
@@ -207,6 +212,50 @@ Delete a leave request (if status is still Pending).
 
 ---
 
+### 8. Get Leave Balance
+
+**Endpoint:** `GET /api/leaves/balance/`
+
+Retrieve current leave balance for the authenticated user.
+
+**Response:**
+```json
+{
+  "error": 0,
+  "data": {
+    "Casual Leave": {
+      "allocated": 12.0,
+      "used": 3.0,
+      "pending": 1.0,
+      "available": 8.0,
+      "carried_forward": 2.0
+    },
+    "Sick Leave": {
+      "allocated": 10.0,
+      "used": 1.0,
+      "pending": 0.0,
+      "available": 9.0,
+      "carried_forward": 0.0
+    },
+    "rh": {
+      "allocated": 2,
+      "used": 0,
+      "available": 2
+    }
+  }
+}
+```
+
+**Error Response (No Balance Configured):**
+```json
+{
+  "error": 1,
+  "message": "No leave balance configured. Please contact HR."
+}
+```
+
+---
+
 ## Data Models
 
 ### Leave Model
@@ -243,6 +292,52 @@ Delete a leave request (if status is still Pending).
 - Approved
 - Rejected
 - Cancelled
+
+---
+
+### LeaveQuota Model
+
+Defines leave quotas configured by admin for each employee.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `employee` | ForeignKey | Reference to User |
+| `leave_type` | String | Type of leave |
+| `monthly_quota` | Decimal | Leaves per month |
+| `yearly_quota` | Decimal | Total leaves per year |
+| `rh_quota` | Integer | Restricted Holidays allowed |
+| `carry_forward_limit` | Decimal | Max leaves to carry forward |
+| `effective_from` | Date | Quota start date |
+| `effective_to` | Date | Quota end date (optional) |
+
+### LeaveBalance Model
+
+Tracks current leave balance for each employee per year.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `employee` | ForeignKey | Reference to User |
+| `leave_type` | String | Type of leave |
+| `year` | Integer | Fiscal year |
+| `total_allocated` | Decimal | Total quota + carry forward |
+| `carried_forward` | Decimal | Leaves from previous year |
+| `used` | Decimal | Approved leaves taken |
+| `pending` | Decimal | Leaves pending approval |
+| `available` | Decimal (computed) | Remaining balance |
+| `rh_allocated` | Integer | RH days allocated |
+| `rh_used` | Integer | RH days used |
+| `rh_available` | Integer (computed) | RH days remaining |
+
+### RestrictedHoliday Model
+
+Defines available Restricted Holiday dates.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `date` | Date | RH date |
+| `name` | String | Holiday name |
+| `description` | Text | Additional details |
+| `is_active` | Boolean | Whether RH is available |
 
 ---
 
@@ -332,16 +427,62 @@ curl -X POST http://localhost:8000/api/leaves/ \
 - Filters by `is_active=True`
 - Checks `date` field against each day
 
+### Leave Balance Validation
+**On Leave Application:**
+1. Check if employee has leave quota configured
+2. Verify available balance >= requested days
+3. If RH dates provided, check RH quota
+4. Reject if insufficient balance
+
+**On Leave Approval:**
+1. Move days from `pending` to `used`
+2. Deduct RH days if applicable
+3. Update balance in real-time
+
+**On Leave Rejection:**
+1. Remove days from `pending`
+2. Return balance to available pool
+
+**On Leave Cancellation:**
+1. Reverse `used` days
+2. Return RH days if applicable
+
+### Carry Forward Logic
+- Unused leaves at year-end can be carried forward
+- Maximum carry forward defined in `LeaveQuota.carry_forward_limit`
+- Carried forward leaves added to next year's `total_allocated`
+
 ---
 
 ## Admin Interface
 
 Access the admin panel at `/admin/` to:
+
+### Leave Management
 - View all leave requests
 - Filter by status, leave type, or date
 - Search by employee name or email
 - Approve/reject leave requests
 - Add rejection reasons
+
+### Leave Quota Management
+- Configure monthly/yearly quotas per employee
+- Set RH allocations
+- Define carry forward limits
+- Set effective date ranges
+- Bulk quota setup for multiple employees
+
+### Leave Balance Tracking
+- View current balances for all employees
+- Filter by year and leave type
+- Monitor usage and availability
+- Read-only (auto-calculated)
+- Export to CSV for reports
+
+### Restricted Holiday Management
+- Add/edit RH dates
+- Mark RH as active/inactive
+- View RH usage across employees
 
 ---
 

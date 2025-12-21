@@ -51,3 +51,142 @@ class Leave(models.Model):
 
     def __str__(self):
         return f"{self.employee} - {self.leave_type} ({self.from_date} to {self.to_date})"
+
+
+class LeaveQuota(models.Model):
+    """
+    Defines leave quotas for employees.
+    Admin configures how many leaves each employee gets per month/year.
+    """
+    employee = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='leave_quotas'
+    )
+    leave_type = models.CharField(
+        max_length=50,
+        choices=Leave.LeaveType.choices
+    )
+    monthly_quota = models.DecimalField(
+        max_digits=5,
+        decimal_places=1,
+        default=0,
+        help_text="Leaves allocated per month"
+    )
+    yearly_quota = models.DecimalField(
+        max_digits=5,
+        decimal_places=1,
+        default=0,
+        help_text="Total leaves allocated per year"
+    )
+    rh_quota = models.IntegerField(
+        default=2,
+        help_text="Number of Restricted Holidays allowed per year"
+    )
+    carry_forward_limit = models.DecimalField(
+        max_digits=5,
+        decimal_places=1,
+        default=0,
+        help_text="Maximum leaves that can be carried forward to next year"
+    )
+    effective_from = models.DateField(help_text="Quota effective from this date")
+    effective_to = models.DateField(null=True, blank=True, help_text="Quota valid until this date")
+    
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['-effective_from']
+        unique_together = ['employee', 'leave_type', 'effective_from']
+
+    def __str__(self):
+        return f"{self.employee} - {self.leave_type} ({self.yearly_quota} days/year)"
+
+
+class LeaveBalance(models.Model):
+    """
+    Tracks current leave balance for each employee.
+    Auto-calculated based on quotas, approved leaves, and carry forwards.
+    """
+    employee = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='leave_balances'
+    )
+    leave_type = models.CharField(
+        max_length=50,
+        choices=Leave.LeaveType.choices
+    )
+    year = models.IntegerField(help_text="Fiscal year (e.g., 2025)")
+    
+    # Allocations
+    total_allocated = models.DecimalField(
+        max_digits=5,
+        decimal_places=1,
+        default=0,
+        help_text="Total allocated (quota + carry forward)"
+    )
+    carried_forward = models.DecimalField(
+        max_digits=5,
+        decimal_places=1,
+        default=0,
+        help_text="Leaves carried forward from previous year"
+    )
+    
+    # Usage
+    used = models.DecimalField(
+        max_digits=5,
+        decimal_places=1,
+        default=0,
+        help_text="Approved leaves taken"
+    )
+    pending = models.DecimalField(
+        max_digits=5,
+        decimal_places=1,
+        default=0,
+        help_text="Leaves pending approval"
+    )
+    
+    # RH Tracking
+    rh_allocated = models.IntegerField(default=0, help_text="RH days allocated")
+    rh_used = models.IntegerField(default=0, help_text="RH days used")
+    
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['-year', 'employee']
+        unique_together = ['employee', 'leave_type', 'year']
+
+    @property
+    def available(self):
+        """Calculate available leaves"""
+        return self.total_allocated - self.used - self.pending
+    
+    @property
+    def rh_available(self):
+        """Calculate available RH days"""
+        return self.rh_allocated - self.rh_used
+
+    def __str__(self):
+        return f"{self.employee} - {self.leave_type} ({self.year}): {self.available}/{self.total_allocated}"
+
+
+class RestrictedHoliday(models.Model):
+    """
+    Restricted Holidays (RH) that employees can choose to take.
+    """
+    date = models.DateField(unique=True)
+    name = models.CharField(max_length=200, help_text="Name of the restricted holiday")
+    description = models.TextField(blank=True, help_text="Additional details")
+    is_active = models.BooleanField(default=True, help_text="Whether this RH is currently available")
+    
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['date']
+
+    def __str__(self):
+        return f"{self.name} ({self.date})"
+

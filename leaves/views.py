@@ -4,11 +4,15 @@ from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from django.utils.dateparse import parse_date
+from django.utils import timezone
 from datetime import timedelta, date
-from .models import Leave
+from .models import Leave, LeaveBalance, LeaveQuota, RestrictedHoliday
 from holidays.models import Holiday
-from .serializers import LeaveSerializer, LeaveCalculationSerializer
-from django.db.models import Q
+from .serializers import (
+    LeaveSerializer, LeaveCalculationSerializer, LeaveBalanceSerializer,
+    LeaveQuotaSerializer, RestrictedHolidaySerializer
+)
+from django.db.models import Q, Sum
 import logging
 
 logger = logging.getLogger(__name__)
@@ -173,20 +177,109 @@ class LeaveViewSet(viewsets.ModelViewSet):
         if not uploaded_file:
              return Response({"error": 1, "message": "No file provided"}, status=status.HTTP_400_BAD_REQUEST)
 
-        # For now, we don't know EXACTLY which leave this attaches to if the ID isn't passed.
-        # The user flow is: 1. Apply Leave -> Gets ID. 2. Upload Doc? 
-        # But payload 3 doesn't have leave_id. It just says "Uploaded successfully".
-        # This implies it might be a temp upload that returns a link/id, which is then sent with apply_leave?
-        # OR apply_leave comes first, and this attaches to it? But how?
-        # WAIT! User request 2 (Apply Leave) has "doc_link": "" (empty).
-        # Request 3 is "3rd api run after uploading document" - wait, the user said "after uploading document", 
-        # but the order in the prompt was 1 (calc), 2 (apply), 3 (upload).
-        # Actually user text: "3rd api run after uploading document" -> This implies upload first? 
-        # OR "3rd api run" means "This is the 3rd step".
-        
-        # Let's assume standard behavior: Upload -> Returns Path -> Submit Leave with Path.
-        # But Request 2 (Apply) has empty doc_link.
-        
         # If the user wants a standalone upload endpoint that just saves the file and returns success:
         return Response({"error": 0, "message": "Uploaded successfully!!"})
+
+    @action(detail=False, methods=['get'], url_path='balance')
+    def get_balance(self, request):
+        """
+        Get leave balance for the logged-in user.
+        Returns balance for all leave types.
+        """
+        employee = request.user
+        current_year = timezone.now().year
+        
+        balances = LeaveBalance.objects.filter(
+            employee=employee,
+            year=current_year
+        )
+        
+        if not balances.exists():
+            return Response({
+                "error": 1,
+                "message": "No leave balance configured. Please contact HR."
+            }, status=status.HTTP_404_NOT_FOUND)
+        
+        balance_data = {}
+        for balance in balances:
+            balance_data[balance.leave_type] = {
+                "allocated": float(balance.total_allocated),
+                "used": float(balance.used),
+                "pending": float(balance.pending),
+                "available": float(balance.available),
+                "carried_forward": float(balance.carried_forward)
+            }
+        
+        # Add RH balance (assuming one RH balance per employee)
+        rh_balance = balances.filter(leave_type='Casual Leave').first()
+        if rh_balance:
+            balance_data['rh'] = {
+                "allocated": rh_balance.rh_allocated,
+                "used": rh_balance.rh_used,
+                "available": rh_balance.rh_available
+            }
+        
+        return Response({
+            "error": 0,
+            "data": balance_data
+        })
+
+    def perform_create(self, serializer):
+        """Override to update balance when leave is created"""
+        leave = serializer.save(employee=self.request.user)
+        
+        # Update pending balance
+        current_year = timezone.now().year
+        try:
+            balance = LeaveBalance.objects.get(
+                employee=self.request.user,
+                leave_type=leave.leave_type,
+                year=current_year
+            )
+            balance.pending += leave.no_of_days
+            balance.save()
+        except LeaveBalance.DoesNotExist:
+            pass
+    
+    def perform_update(self, serializer):
+        """Override to update balance when leave status changes"""
+        old_leave = self.get_object()
+        old_status = old_leave.status
+        
+        leave = serializer.save()
+        new_status = leave.status
+        
+        # Update balance if status changed
+        if old_status != new_status:
+            current_year = timezone.now().year
+            try:
+                balance = LeaveBalance.objects.get(
+                    employee=leave.employee,
+                    leave_type=leave.leave_type,
+                    year=current_year
+                )
+                
+                # If approved: move from pending to used
+                if new_status == 'Approved' and old_status == 'Pending':
+                    balance.pending -= leave.no_of_days
+                    balance.used += leave.no_of_days
+                    
+                    # Update RH if applicable
+                    if leave.rh_dates:
+                        balance.rh_used += len(leave.rh_dates)
+                
+                # If rejected: remove from pending
+                elif new_status == 'Rejected' and old_status == 'Pending':
+                    balance.pending -= leave.no_of_days
+                
+                # If cancelled: reverse the used
+                elif new_status == 'Cancelled' and old_status == 'Approved':
+                    balance.used -= leave.no_of_days
+                    if leave.rh_dates:
+                        balance.rh_used -= len(leave.rh_dates)
+                
+                balance.save()
+            except LeaveBalance.DoesNotExist:
+                pass
+
 
