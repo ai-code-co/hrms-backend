@@ -9,6 +9,9 @@ The **Employees Module** is the core HR database that stores all employee inform
 - Education history
 - Work experience
 
+> [!NOTE]
+> **Automatic Creation:** Employee profiles are now automatically created when an Admin creates a User account via the Authentication module. Only additional details (docs, banking, education) need to be added manually later.
+
 ## Why do we need it?
 
 - **Central Database** - Single source of truth for all employee data
@@ -53,6 +56,8 @@ The **Employees Module** is the core HR database that stores all employee inform
 
 ### 3. Create Employee
 `POST /api/employees/` (Admin only)
+
+**Note:** This endpoint is typically used for bulk imports or manual entries. For new hires, use the `POST /api/auth/users/` endpoint to create both the User and Employee profile simultaneously.
 
 ### 4. Update Employee
 `PATCH /api/employees/{id}/` (Admin only)
