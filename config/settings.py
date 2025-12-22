@@ -12,6 +12,7 @@ https://docs.djangoproject.com/en/6.0/ref/settings/
 
 import os
 from pathlib import Path
+from datetime import timedelta
 import dj_database_url
 from dotenv import load_dotenv
 load_dotenv()
@@ -41,6 +42,7 @@ INSTALLED_APPS = [
     'employees.apps.EmployeesConfig',
     'holidays.apps.HolidaysConfig',
     'inventory.apps.InventoryConfig',
+    'leaves.apps.LeavesConfig',
     'drf_yasg',
     'django.contrib.admin',
     'django.contrib.auth',
@@ -81,6 +83,17 @@ REST_FRAMEWORK = {
     ),
 }
 
+# JWT Settings
+SIMPLE_JWT = {
+    'ACCESS_TOKEN_LIFETIME': timedelta(hours=24),
+    'REFRESH_TOKEN_LIFETIME': timedelta(days=7),
+    'ROTATE_REFRESH_TOKENS': True,
+    'BLACKLIST_AFTER_ROTATION': True,
+    'ALGORITHM': 'HS256',
+    'SIGNING_KEY': SECRET_KEY,
+    'AUTH_HEADER_TYPES': ('Bearer',),
+}
+
 # Add django-filter if installed
 try:
     import django_filters
@@ -112,7 +125,7 @@ TEMPLATES = [
         },
     },
 ]
-
+    
 # CORS Settings - configurable via environment variables
 CORS_ALLOW_ALL_ORIGINS = os.environ.get('CORS_ALLOW_ALL_ORIGINS', 'False') == 'True'
 CORS_ALLOW_CREDENTIALS = os.environ.get('CORS_ALLOW_CREDENTIALS', 'True') == 'True'
