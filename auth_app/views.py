@@ -32,10 +32,7 @@ load_dotenv()
 # ------------------------------------------------------------------
 # User profile creation
 # ------------------------------------------------------------------
-class AdminCreateUserView(CreateAPIView):
-    queryset = User.objects.all()
-    serializer_class = AdminCreateUserSerializer
-    permission_classes = [IsAdminUser]
+
 
 # ------------------------------------------------------------------
 # User profile

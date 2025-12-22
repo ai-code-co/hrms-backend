@@ -27,24 +27,71 @@ class AdminCreateUserSerializer(serializers.ModelSerializer):
             "first_name",
             "last_name",
             "password",
-            "phone_number",
-            "gender",
-            "job_title",
-            "department",
+            "phone_number", "gender", "job_title", "department",
+            # NEW employee fields
+            "department_id", "designation_id", 
+            "reporting_manager_id", "joining_date",
+            "address_line1", "city", "state", "postal_code"
         ]
 
+    # Handle NEW employee fields as explicitly extra fields if they are not on User model
+    department_id = serializers.IntegerField(required=True)
+    designation_id = serializers.IntegerField(required=True)
+    reporting_manager_id = serializers.IntegerField(required=False, allow_null=True)
+    joining_date = serializers.DateField(required=False, allow_null=True)
+    address_line1 = serializers.CharField(required=False, allow_blank=True)
+    city = serializers.CharField(required=False, allow_blank=True)
+    state = serializers.CharField(required=False, allow_blank=True)
+    postal_code = serializers.CharField(required=False, allow_blank=True)
+
     def create(self, validated_data):
+        # Extract employee-specific fields
+        employee_data = {
+            'phone': validated_data.get('phone_number'), # Use phone_number from User
+            'department_id': validated_data.pop('department_id'),
+            'designation_id': validated_data.pop('designation_id'),
+            'reporting_manager_id': validated_data.pop('reporting_manager_id', None),
+            'joining_date': validated_data.pop('joining_date', None),
+            'address_line1': validated_data.pop('address_line1', ''),
+            'city': validated_data.pop('city', ''),
+            'state': validated_data.pop('state', ''),
+            'postal_code': validated_data.pop('postal_code', ''),
+        }
+
         password = validated_data.pop("password")
 
         user = User.objects.create(
             **validated_data,
             is_active=True,
-            is_verified=True,      # ✅ change if you still want email verify
+            is_verified=True,      # Keep as True since it's admin created usually assumes verified or use flow
             is_first_login=True
         )
 
         user.set_password(password)
         user.save()
+
+        # Create Employee profile
+        from employees.models import Employee
+        from django.utils import timezone
+        
+        Employee.objects.create(
+            user=user,
+            first_name=user.first_name,
+            last_name=user.last_name,
+            email=user.email,
+            phone=employee_data['phone'],
+            department_id=employee_data['department_id'],
+            designation_id=employee_data['designation_id'],
+            reporting_manager_id=employee_data['reporting_manager_id'],
+            joining_date=employee_data['joining_date'] or timezone.now().date(),
+            address_line1=employee_data['address_line1'],
+            city=employee_data['city'],
+            state=employee_data['state'],
+            postal_code=employee_data['postal_code'],
+            employment_status='active',
+            created_by=self.context['request'].user if 'request' in self.context else None,
+            updated_by=self.context['request'].user if 'request' in self.context else None,
+        )
 
         # Optional: notify user
         # send_verification_email(user)

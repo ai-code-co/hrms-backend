@@ -187,7 +187,13 @@ Authorization: Bearer <admin_access_token>
   "username": "jane.smith",
   "email": "jane@company.com",
   "first_name": "Jane",
-  "last_name": "Smith"
+  "last_name": "Smith",
+  "password": "SecurePass123!",
+  "phone": "+919876543210",
+  "department_id": 1,
+  "designation_id": 5,
+  "reporting_manager_id": 10,
+  "joining_date": "2025-01-15"
 }
 ```
 
@@ -206,8 +212,9 @@ Authorization: Bearer <admin_access_token>
 
 **What Happens:**
 1. User account created (inactive)
-2. Verification email sent to user
-3. User must verify email and set password
+2. **Employee profile automatically created** with provided department/designation
+3. Verification email sent to user
+4. User must verify email and set password
 
 ---
 
@@ -321,10 +328,14 @@ Authorization: Bearer <access_token>
 │    "username": "jane.smith",                            │
 │    "email": "jane@company.com",                         │
 │    "first_name": "Jane",                                │
-│    "last_name": "Smith"                                 │
+│    "last_name": "Smith",                                │
+│    "phone": "+919876543210",                            │
+│    "department_id": 1,                                  │
+│    "designation_id": 5                                  │
 │  }                                                       │
 │                                                          │
 │  ✅ User created (inactive, unverified)                 │
+│  ✅ Employee profile auto-created                       │
 │  📧 Verification email sent                             │
 └─────────────────────────────────────────────────────────┘
                       ↓

@@ -89,12 +89,12 @@ class Employee(models.Model):
         ]
     )
     alternate_phone = models.CharField(max_length=20, blank=True)
-    address_line1 = models.CharField(max_length=200)
+    address_line1 = models.CharField(max_length=200, blank=True)
     address_line2 = models.CharField(max_length=200, blank=True)
-    city = models.CharField(max_length=50)
-    state = models.CharField(max_length=50)
+    city = models.CharField(max_length=50, blank=True)
+    state = models.CharField(max_length=50, blank=True)
     country = models.CharField(max_length=50, default='India')
-    postal_code = models.CharField(max_length=10)
+    postal_code = models.CharField(max_length=10, blank=True)
     
     # ========== PROFESSIONAL INFORMATION ==========
     department = models.ForeignKey(
@@ -125,7 +125,7 @@ class Employee(models.Model):
         choices=EMPLOYMENT_STATUS_CHOICES,
         default='active'
     )
-    joining_date = models.DateField()
+    joining_date = models.DateField(null=True, blank=True)
     probation_end_date = models.DateField(null=True, blank=True)
     confirmation_date = models.DateField(null=True, blank=True)
     work_location = models.CharField(max_length=100, default='Office')
