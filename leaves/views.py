@@ -23,9 +23,15 @@ class LeaveViewSet(viewsets.ModelViewSet):
     permission_classes = [permissions.IsAuthenticated]
 
     def get_queryset(self):
-        # Users see their own leaves; Admins/Staff might see all (implementation detail)
-        # For now, scoping to request.user
-        return Leave.objects.filter(employee=self.request.user)
+        # OLD CODE: return Leave.objects.filter(employee=self.request.user)
+        # NEW CODE (2025-12-22): Filter by Employee, not User
+        user = self.request.user
+        
+        # Check if user has employee profile
+        if not hasattr(user, 'employee_profile'):
+            return Leave.objects.none()  # Return empty queryset
+        
+        return Leave.objects.filter(employee=user.employee_profile)
 
     def create(self, request, *args, **kwargs):
         """
@@ -42,7 +48,12 @@ class LeaveViewSet(viewsets.ModelViewSet):
         return super().create(request, *args, **kwargs)
 
     def perform_create(self, serializer):
-        serializer.save(employee=self.request.user)
+        # OLD CODE: serializer.save(employee=self.request.user)
+        # NEW CODE (2025-12-22): Save with Employee
+        user = self.request.user
+        if not hasattr(user, 'employee_profile'):
+            raise serializers.ValidationError("User must have an employee profile")
+        serializer.save(employee=user.employee_profile)
 
     @action(detail=False, methods=['post'], url_path='calculate-days')
     def calculate_days(self, request):
@@ -150,7 +161,16 @@ class LeaveViewSet(viewsets.ModelViewSet):
         
         serializer = self.get_serializer(data=data)
         if serializer.is_valid():
-            leave = serializer.save(employee=self.request.user)
+            # OLD CODE: leave = serializer.save(employee=self.request.user)
+            # NEW CODE (2025-12-22): Save with Employee
+            user = self.request.user
+            if not hasattr(user, 'employee_profile'):
+                return Response({
+                    "error": 1,
+                    "message": "User must have an employee profile to apply for leaves"
+                }, status=status.HTTP_400_BAD_REQUEST)
+            
+            leave = serializer.save(employee=user.employee_profile)
             return Response({
                 "error": 0, 
                 "data": {
@@ -186,7 +206,18 @@ class LeaveViewSet(viewsets.ModelViewSet):
         Get leave balance for the logged-in user.
         Returns balance for all leave types.
         """
-        employee = request.user
+        # OLD CODE: employee = request.user
+        # NEW CODE (2025-12-22): Get Employee from User
+        user = request.user
+        
+        # Check if user has employee profile
+        if not hasattr(user, 'employee_profile'):
+            return Response({
+                "error": 1,
+                "message": "User must have an employee profile. Please contact HR."
+            }, status=status.HTTP_404_NOT_FOUND)
+        
+        employee = user.employee_profile
         current_year = timezone.now().year
         
         balances = LeaveBalance.objects.filter(
@@ -226,13 +257,19 @@ class LeaveViewSet(viewsets.ModelViewSet):
 
     def perform_create(self, serializer):
         """Override to update balance when leave is created"""
-        leave = serializer.save(employee=self.request.user)
+        # OLD CODE: leave = serializer.save(employee=self.request.user)
+        # NEW CODE (2025-12-22): Save with Employee
+        user = self.request.user
+        if not hasattr(user, 'employee_profile'):
+            raise serializers.ValidationError("User must have an employee profile")
+        
+        leave = serializer.save(employee=user.employee_profile)
         
         # Update pending balance
         current_year = timezone.now().year
         try:
             balance = LeaveBalance.objects.get(
-                employee=self.request.user,
+                employee=user.employee_profile,  # Changed from self.request.user
                 leave_type=leave.leave_type,
                 year=current_year
             )

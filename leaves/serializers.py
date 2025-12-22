@@ -15,7 +15,19 @@ class LeaveSerializer(serializers.ModelSerializer):
     
     def validate(self, data):
         """Validate leave application against balance"""
-        employee = self.context['request'].user
+        # OLD CODE (Before 2025-12-22): Used request.user directly
+        # employee = self.context['request'].user
+        
+        # NEW CODE (2025-12-22): Get Employee from User
+        user = self.context['request'].user
+        
+        # Check if user has employee profile
+        if not hasattr(user, 'employee_profile'):
+            raise serializers.ValidationError({
+                'employee': 'User must have an employee profile to apply for leaves. Please contact HR.'
+            })
+        
+        employee = user.employee_profile
         leave_type = data.get('leave_type')
         no_of_days = data.get('no_of_days', 0)
         rh_dates = data.get('rh_dates', [])

@@ -263,7 +263,7 @@ Retrieve current leave balance for the authenticated user.
 | Field | Type | Description |
 |-------|------|-------------|
 | `id` | Integer | Primary key |
-| `employee` | ForeignKey | Reference to User |
+| `employee` | ForeignKey | Reference to Employee (not User) |
 | `leave_type` | String | Type of leave (Casual, Sick, etc.) |
 | `from_date` | Date | Start date |
 | `to_date` | Date | End date |
@@ -277,6 +277,8 @@ Retrieve current leave balance for the authenticated user.
 | `rh_dates` | JSON | Restricted Holiday dates |
 | `created_at` | DateTime | Creation timestamp |
 | `updated_at` | DateTime | Last update timestamp |
+
+> **Note:** As of 2025-12-22, Leave is connected to the `Employee` model, not directly to `User`. Users must have an employee profile to apply for leaves.
 
 ### Leave Types
 - Casual Leave
@@ -301,7 +303,7 @@ Defines leave quotas configured by admin for each employee.
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `employee` | ForeignKey | Reference to User |
+| `employee` | ForeignKey | Reference to Employee |
 | `leave_type` | String | Type of leave |
 | `monthly_quota` | Decimal | Leaves per month |
 | `yearly_quota` | Decimal | Total leaves per year |
@@ -316,7 +318,7 @@ Tracks current leave balance for each employee per year.
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `employee` | ForeignKey | Reference to User |
+| `employee` | ForeignKey | Reference to Employee |
 | `leave_type` | String | Type of leave |
 | `year` | Integer | Fiscal year |
 | `total_allocated` | Decimal | Total quota + carry forward |
@@ -505,9 +507,11 @@ CREATE TABLE leaves_leave (
     rh_dates JSON,
     created_at DATETIME NOT NULL,
     updated_at DATETIME NOT NULL,
-    FOREIGN KEY (employee_id) REFERENCES auth_user(id)
+    FOREIGN KEY (employee_id) REFERENCES employees_employee(id)
 );
 ```
+
+> **Note:** Foreign key now references `employees_employee` table instead of `auth_app_user`.
 
 ---
 

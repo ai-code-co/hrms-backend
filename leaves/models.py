@@ -1,6 +1,8 @@
 from django.db import models
 from django.conf import settings
 from django.utils.translation import gettext_lazy as _
+# MIGRATION: Changed from User to Employee model (2025-12-22)
+# from employees.models import Employee
 
 class Leave(models.Model):
     class LeaveType(models.TextChoices):
@@ -18,10 +20,19 @@ class Leave(models.Model):
         REJECTED = 'Rejected', _('Rejected')
         CANCELLED = 'Cancelled', _('Cancelled')
 
+    # OLD CODE (Before 2025-12-22): Connected to User model
+    # employee = models.ForeignKey(
+    #     settings.AUTH_USER_MODEL,
+    #     on_delete=models.CASCADE,
+    #     related_name='leaves'
+    # )
+    
+    # NEW CODE (2025-12-22): Changed to Employee model
     employee = models.ForeignKey(
-        settings.AUTH_USER_MODEL,
+        'employees.Employee',
         on_delete=models.CASCADE,
-        related_name='leaves'
+        related_name='leaves',
+        help_text="Employee applying for leave"
     )
     leave_type = models.CharField(
         max_length=50,
@@ -58,10 +69,13 @@ class LeaveQuota(models.Model):
     Defines leave quotas for employees.
     Admin configures how many leaves each employee gets per month/year.
     """
+    # OLD CODE: employee = models.ForeignKey(settings.AUTH_USER_MODEL, ...)
+    # NEW CODE (2025-12-22): Changed to Employee model
     employee = models.ForeignKey(
-        settings.AUTH_USER_MODEL,
+        'employees.Employee',
         on_delete=models.CASCADE,
-        related_name='leave_quotas'
+        related_name='leave_quotas',
+        help_text="Employee for whom quota is configured"
     )
     leave_type = models.CharField(
         max_length=50,
@@ -108,10 +122,13 @@ class LeaveBalance(models.Model):
     Tracks current leave balance for each employee.
     Auto-calculated based on quotas, approved leaves, and carry forwards.
     """
+    # OLD CODE: employee = models.ForeignKey(settings.AUTH_USER_MODEL, ...)
+    # NEW CODE (2025-12-22): Changed to Employee model
     employee = models.ForeignKey(
-        settings.AUTH_USER_MODEL,
+        'employees.Employee',
         on_delete=models.CASCADE,
-        related_name='leave_balances'
+        related_name='leave_balances',
+        help_text="Employee whose balance is tracked"
     )
     leave_type = models.CharField(
         max_length=50,
