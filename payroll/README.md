@@ -50,6 +50,14 @@ Returns HR configurations.
 
 ## Calculation Logic
 The module synchronizes with:
-- **Leaves**: Approved `Unpaid Leave` records result in salary deductions based on the daily rate of the employee.
+- **Leaves**: Approved `Unpaid Leave` records result in salary deductions.
+    - **Formula**: `Daily Rate = Gross Salary / Days in Month`
+    - **Deduction**: `Unpaid Leaves * Daily Rate`
 - **Holidays**: Public holidays are counted as paid days.
 - **Designation/Level**: Can be used to determine components if needed.
+
+## Testing Deductions
+To test how leaves affect salary:
+1. Apply and **approve** an "Unpaid Leave" for an employee in the Admin panel.
+2. Call the `GET /api/payroll/user-salary-info/` API.
+3. Observe the `current_month_preview` object in the response. It will show the updated `net_salary` and the `unpaid_leave_deduction` details.

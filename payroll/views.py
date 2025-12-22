@@ -3,8 +3,10 @@ from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
 from .models import SalaryStructure, Payslip, PayrollConfig
 from .serializers import SalaryStructureSerializer, PayslipSerializer, SalaryOverviewSerializer, PayrollConfigSerializer
+from .services import PayrollService
 from employees.models import Employee
 from django.shortcuts import get_object_or_404
+from django.utils import timezone
 
 class UserSalaryInfoView(APIView):
     """
@@ -22,8 +24,9 @@ class UserSalaryInfoView(APIView):
         # Get payslip history
         payslips = Payslip.objects.filter(employee=employee).order_by('-year', '-month')
         
-        # In a real system, we might want to trigger a 'preview' calculation 
-        # for the current month here based on leaves/holidays.
+        # Get current month preview
+        now = timezone.now()
+        salary_preview = PayrollService.calculate_monthly_salary(employee, now.month, now.year)
         
         data = {
             "id": str(request.user.id),
@@ -31,6 +34,7 @@ class UserSalaryInfoView(APIView):
             "email": employee.email,
             "date_of_joining": employee.joining_date,
             "type": "employee",
+            "current_month_preview": salary_preview,
             "salary_details": SalaryStructureSerializer(salary_structure, many=True).data,
             "payslip_history": PayslipSerializer(payslips, many=True).data,
             "holding_details": []
