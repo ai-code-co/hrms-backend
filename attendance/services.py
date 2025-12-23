@@ -11,6 +11,48 @@ class AttendanceCalculationService:
         if not (in_time and out_time):
             return 0
         return int((out_time - in_time).total_seconds())
+    
+    @staticmethod
+    def calculate_location_seconds(in_time, out_time):
+        """Calculate seconds for a specific location (office or home)."""
+        if not (in_time and out_time):
+            return 0
+        return int((out_time - in_time).total_seconds())
+    
+    @staticmethod
+    def get_earliest_checkin(attendance):
+        """Get earliest check-in across all locations."""
+        checkins = []
+        if attendance.office_in_time:
+            checkins.append(attendance.office_in_time)
+        if attendance.home_in_time:
+            checkins.append(attendance.home_in_time)
+        if attendance.in_time:
+            checkins.append(attendance.in_time)
+        return min(checkins) if checkins else None
+    
+    @staticmethod
+    def get_latest_checkout(attendance):
+        """Get latest check-out across all locations."""
+        checkouts = []
+        if attendance.office_out_time:
+            checkouts.append(attendance.office_out_time)
+        if attendance.home_out_time:
+            checkouts.append(attendance.home_out_time)
+        if attendance.out_time:
+            checkouts.append(attendance.out_time)
+        return max(checkouts) if checkouts else None
+    
+    @staticmethod
+    def calculate_total_worked_seconds(attendance):
+        """Sum office and home seconds worked."""
+        office_seconds = AttendanceCalculationService.calculate_location_seconds(
+            attendance.office_in_time, attendance.office_out_time
+        )
+        home_seconds = AttendanceCalculationService.calculate_location_seconds(
+            attendance.home_in_time, attendance.home_out_time
+        )
+        return office_seconds + home_seconds
 
     @staticmethod
     def calculate_extra_seconds(worked_seconds, scheduled_seconds):
@@ -76,8 +118,25 @@ class AttendanceCalculationService:
     def should_flag_admin_alert(attendance):
         """
         Flag missing in/out only on working days; skip alerts for holidays/weekends/leave.
+        Check both location times and backward-compatible in_time/out_time.
         """
         if attendance.day_type in ['HOLIDAY', 'WEEKEND_OFF', 'LEAVE_DAY']:
             return False
+        
+        # If location times exist, check them
+        has_office_times = attendance.office_in_time and attendance.office_out_time
+        has_home_times = attendance.home_in_time and attendance.home_out_time
+        has_any_location_times = has_office_times or has_home_times
+        
+        if has_any_location_times:
+            # If they started at office, they should have office out
+            if attendance.office_in_time and not attendance.office_out_time:
+                return True
+            # If they started at home, they should have home out
+            if attendance.home_in_time and not attendance.home_out_time:
+                return True
+            return False
+        
+        # Fallback to old in_time/out_time check
         return not (attendance.in_time and attendance.out_time)
 

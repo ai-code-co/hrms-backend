@@ -1,4 +1,4 @@
-from rest_framework import viewsets, status, filters
+from rest_framework import viewsets, status, filters, serializers
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated, IsAdminUser
@@ -109,7 +109,7 @@ class AttendanceViewSet(viewsets.ModelViewSet):
         """
         Employee check-in endpoint
         POST /api/attendance/check-in/
-        Body: {"date": "2025-12-01", "notes": "Optional notes"}
+        Body: {"date": "2025-12-01", "location": "OFFICE", "notes": "Optional notes"}
         """
         user = request.user
         
@@ -130,8 +130,52 @@ class AttendanceViewSet(viewsets.ModelViewSet):
                 "errors": serializer.errors
             }, status=status.HTTP_400_BAD_REQUEST)
         
-        # Get date (default to today)
+        # Get date and location
         check_date = serializer.validated_data.get('date', timezone.now().date())
+        location = serializer.validated_data.get('location')
+        notes = serializer.validated_data.get('notes', '')
+        is_work_from_home = serializer.validated_data.get('is_work_from_home', False) or serializer.validated_data.get('is_working_from_home', False)
+        # Support both old and new field names
+        check_in_str = serializer.validated_data.get('home_check_in', '') or serializer.validated_data.get('check_in', '')
+        check_out_str = serializer.validated_data.get('home_check_out', '') or serializer.validated_data.get('check_out', '')
+        current_time = timezone.now()
+        
+        # If working from home, set location to HOME automatically
+        if is_work_from_home:
+            location = 'HOME'
+        
+        # Parse time strings if provided (for work from home)
+        home_in_time = None
+        home_out_time = None
+        
+        if is_work_from_home:
+            if check_in_str:
+                try:
+                    home_in_time = serializer.parse_time_string(check_in_str, check_date)
+                except Exception as e:
+                    return Response({
+                        "error": 1,
+                        "message": str(e)
+                    }, status=status.HTTP_400_BAD_REQUEST)
+            else:
+                # If no check_in time provided, use current time
+                home_in_time = current_time
+            
+            if check_out_str:
+                try:
+                    home_out_time = serializer.parse_time_string(check_out_str, check_date)
+                    # Validate that check_out is after check_in
+                    if home_in_time and home_out_time <= home_in_time:
+                        return Response({
+                            "error": 1,
+                            "message": "Check-out time must be after check-in time"
+                        }, status=status.HTTP_400_BAD_REQUEST)
+                except Exception as e:
+                    return Response({
+                        "error": 1,
+                        "message": str(e)
+                    }, status=status.HTTP_400_BAD_REQUEST)
+        
         with transaction.atomic():
             # Lock row to prevent concurrent check-ins
             existing = Attendance.objects.select_for_update().filter(
@@ -139,16 +183,36 @@ class AttendanceViewSet(viewsets.ModelViewSet):
                 date=check_date
             ).first()
 
-            if existing and existing.in_time:
-                return Response({
-                    "error": 1,
-                    "message": f"Already checked in for {check_date}"
-                }, status=status.HTTP_400_BAD_REQUEST)
+            # Validate location-specific check-in
+            if location == 'OFFICE':
+                if existing and existing.office_in_time:
+                    return Response({
+                        "error": 1,
+                        "message": f"Already checked in at office for {check_date}"
+                    }, status=status.HTTP_400_BAD_REQUEST)
+            elif location == 'HOME':
+                if existing and existing.home_in_time and not is_work_from_home:
+                    return Response({
+                        "error": 1,
+                        "message": f"Already checked in at home for {check_date}"
+                    }, status=status.HTTP_400_BAD_REQUEST)
 
             # Create or update attendance record
             if existing:
-                existing.in_time = timezone.now()
-                existing.day_text = serializer.validated_data.get('notes', '')
+                if location == 'OFFICE':
+                    existing.office_in_time = current_time
+                elif location == 'HOME':
+                    if home_in_time:
+                        existing.home_in_time = home_in_time
+                    else:
+                        existing.home_in_time = current_time
+                    if home_out_time:
+                        existing.home_out_time = home_out_time
+                
+                existing.is_working_from_home = is_work_from_home
+                if notes:
+                    existing.day_text = notes
+                existing.updated_by = user
                 self._determine_day_type(existing)
                 existing.save()
                 attendance = existing
@@ -157,8 +221,11 @@ class AttendanceViewSet(viewsets.ModelViewSet):
                 attendance = Attendance.objects.create(
                     employee=employee,
                     date=check_date,
-                    in_time=timezone.now(),
-                    day_text=serializer.validated_data.get('notes', ''),
+                    office_in_time=current_time if location == 'OFFICE' else None,
+                    home_in_time=home_in_time if location == 'HOME' else (current_time if location == 'HOME' and not home_in_time else None),
+                    home_out_time=home_out_time if location == 'HOME' and home_out_time else None,
+                    day_text=notes,
+                    is_working_from_home=is_work_from_home,
                     office_working_hours=getattr(settings, 'ATTENDANCE_DEFAULT_WORKING_HOURS', '09:00'),
                     orignal_total_time=getattr(settings, 'ATTENDANCE_DEFAULT_TOTAL_TIME_SECONDS', 32400),
                     created_by=user,
@@ -167,12 +234,31 @@ class AttendanceViewSet(viewsets.ModelViewSet):
                 self._determine_day_type(attendance)
                 attendance.save()
         
+        # Format response
+        from .serializers import format_time_to_12hr, format_datetime_to_iso
+        
+        location_time = attendance.office_in_time if location == 'OFFICE' else attendance.home_in_time
+        message = "Checked in successfully"
+        if is_work_from_home and check_out_str:
+            message = "Attendance recorded successfully (check-in and check-out)"
+        elif is_work_from_home:
+            message = "Checked in successfully at home"
+        else:
+            message = f"Checked in successfully at {location.lower()}"
+        
         return Response({
             "error": 0,
             "data": {
-                "message": "Checked in successfully",
+                "message": message,
                 "attendance_id": attendance.id,
-                "check_in_time": attendance.in_time.strftime(TIME_12HR_FORMAT),
+                "location": location,
+                "check_in_time": format_time_to_12hr(location_time),
+                "check_out_time": format_time_to_12hr(attendance.home_out_time) if attendance.home_out_time else None,
+                "office_in_time": format_datetime_to_iso(attendance.office_in_time) if attendance.office_in_time else None,
+                "office_out_time": format_datetime_to_iso(attendance.office_out_time) if attendance.office_out_time else None,
+                "home_in_time": format_datetime_to_iso(attendance.home_in_time) if attendance.home_in_time else None,
+                "home_out_time": format_datetime_to_iso(attendance.home_out_time) if attendance.home_out_time else None,
+                "is_working_from_home": attendance.is_working_from_home,
                 "date": attendance.date.strftime(DATE_FORMAT)
             }
         }, status=status.HTTP_201_CREATED)
@@ -182,7 +268,7 @@ class AttendanceViewSet(viewsets.ModelViewSet):
         """
         Employee check-out endpoint
         POST /api/attendance/check-out/
-        Body: {"date": "2025-12-01", "notes": "Optional notes"}
+        Body: {"date": "2025-12-01", "location": "OFFICE", "notes": "Optional notes"}
         """
         user = request.user
         
@@ -203,8 +289,11 @@ class AttendanceViewSet(viewsets.ModelViewSet):
                 "errors": serializer.errors
             }, status=status.HTTP_400_BAD_REQUEST)
         
-        # Get date (default to today)
+        # Get date and location
         check_date = serializer.validated_data.get('date', timezone.now().date())
+        location = serializer.validated_data.get('location')
+        notes = serializer.validated_data.get('notes', '')
+        current_time = timezone.now()
         
         with transaction.atomic():
             attendance = Attendance.objects.select_for_update().filter(
@@ -218,16 +307,35 @@ class AttendanceViewSet(viewsets.ModelViewSet):
                     "message": f"No check-in found for {check_date}. Please check in first."
                 }, status=status.HTTP_400_BAD_REQUEST)
             
-            if attendance.out_time:
-                return Response({
-                    "error": 1,
-                    "message": f"Already checked out for {check_date}"
-                }, status=status.HTTP_400_BAD_REQUEST)
+            # Validate location-specific check-out
+            if location == 'OFFICE':
+                if not attendance.office_in_time:
+                    return Response({
+                        "error": 1,
+                        "message": f"No office check-in found for {check_date}. Please check in at office first."
+                    }, status=status.HTTP_400_BAD_REQUEST)
+                if attendance.office_out_time:
+                    return Response({
+                        "error": 1,
+                        "message": f"Already checked out from office for {check_date}"
+                    }, status=status.HTTP_400_BAD_REQUEST)
+                attendance.office_out_time = current_time
+                
+            elif location == 'HOME':
+                if not attendance.home_in_time:
+                    return Response({
+                        "error": 1,
+                        "message": f"No home check-in found for {check_date}. Please check in at home first."
+                    }, status=status.HTTP_400_BAD_REQUEST)
+                if attendance.home_out_time:
+                    return Response({
+                        "error": 1,
+                        "message": f"Already checked out from home for {check_date}"
+                    }, status=status.HTTP_400_BAD_REQUEST)
+                attendance.home_out_time = current_time
             
-            # Set check-out time
-            attendance.out_time = timezone.now()
-            if serializer.validated_data.get('notes'):
-                attendance.text = serializer.validated_data.get('notes', '')
+            if notes:
+                attendance.text = notes
             attendance.updated_by = user
             
             # Save will trigger time calculations
@@ -237,14 +345,22 @@ class AttendanceViewSet(viewsets.ModelViewSet):
         # Format response
         from .serializers import format_seconds_to_time, format_time_to_12hr
         
+        location_in_time = attendance.office_in_time if location == 'OFFICE' else attendance.home_in_time
+        location_out_time = attendance.office_out_time if location == 'OFFICE' else attendance.home_out_time
+        location_seconds = attendance.office_seconds_worked if location == 'OFFICE' else attendance.home_seconds_worked
+        
         return Response({
             "error": 0,
             "data": {
-                "message": "Checked out successfully",
+                "message": f"Checked out successfully from {location.lower()}",
                 "attendance_id": attendance.id,
-                "check_in_time": format_time_to_12hr(attendance.in_time),
-                "check_out_time": format_time_to_12hr(attendance.out_time),
+                "location": location,
+                "check_in_time": format_time_to_12hr(location_in_time),
+                "check_out_time": format_time_to_12hr(location_out_time),
+                f"{location.lower()}_time": format_seconds_to_time(location_seconds),
                 "total_time": format_seconds_to_time(attendance.seconds_actual_worked_time),
+                "office_time": format_seconds_to_time(attendance.office_seconds_worked),
+                "home_time": format_seconds_to_time(attendance.home_seconds_worked),
                 "extra_time": format_seconds_to_time(attendance.seconds_extra_time),
                 "extra_time_status": attendance.extra_time_status,
                 "date": attendance.date.strftime(DATE_FORMAT)

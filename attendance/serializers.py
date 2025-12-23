@@ -67,14 +67,29 @@ class AttendanceListSerializer(serializers.ModelSerializer):
     """Lightweight serializer for attendance lists"""
     employee_name = serializers.CharField(source='employee.get_full_name', read_only=True)
     employee_id = serializers.CharField(source='employee.employee_id', read_only=True)
+    work_location_summary = serializers.SerializerMethodField()
     
     class Meta:
         model = Attendance
         fields = [
             'id', 'employee', 'employee_id', 'employee_name', 'date',
-            'in_time', 'out_time', 'day_type', 'admin_alert',
-            'seconds_actual_worked_time', 'seconds_extra_time'
+            'day_type', 'admin_alert',
+            'seconds_actual_worked_time', 'seconds_extra_time',
+            'office_in_time', 'office_out_time', 'home_in_time', 'home_out_time',
+            'office_seconds_worked', 'home_seconds_worked', 'work_location_summary',
+            'is_working_from_home'
         ]
+    
+    def get_work_location_summary(self, obj):
+        """Get summary of work locations and times"""
+        parts = []
+        if obj.office_seconds_worked > 0:
+            office_time = format_seconds_to_time(obj.office_seconds_worked)
+            parts.append(f"Office: {office_time}")
+        if obj.home_seconds_worked > 0:
+            home_time = format_seconds_to_time(obj.home_seconds_worked)
+            parts.append(f"Home: {home_time}")
+        return ", ".join(parts) if parts else ""
 
 
 class AttendanceDetailSerializer(serializers.ModelSerializer):
@@ -87,6 +102,9 @@ class AttendanceDetailSerializer(serializers.ModelSerializer):
     # Formatted time strings
     total_time = serializers.SerializerMethodField()
     extra_time = serializers.SerializerMethodField()
+    office_time_formatted = serializers.SerializerMethodField()
+    home_time_formatted = serializers.SerializerMethodField()
+    work_location_summary = serializers.SerializerMethodField()
     
     # Employee info
     employee_detail = serializers.SerializerMethodField()
@@ -96,21 +114,25 @@ class AttendanceDetailSerializer(serializers.ModelSerializer):
         fields = [
             # Date fields
             'full_date', 'date_str', 'day', 'date',
-            # Time fields
-            'in_time', 'out_time',
+            # Location-specific times
+            'office_in_time', 'office_out_time', 'home_in_time', 'home_out_time',
             # Working hours
             'office_working_hours', 'orignal_total_time',
             # Calculated time (seconds)
             'seconds_actual_worked_time', 'seconds_actual_working_time',
             'seconds_extra_time', 'office_time_inside',
+            'office_seconds_worked', 'home_seconds_worked',
             # Formatted time strings
-            'total_time', 'extra_time',
+            'total_time', 'extra_time', 'office_time_formatted', 'home_time_formatted',
+            'work_location_summary',
             # Status
             'day_type', 'extra_time_status',
             # Alerts
             'admin_alert', 'admin_alert_message',
             # Messages
             'day_text', 'text',
+            # Flags
+            'is_working_from_home',
             # Employee
             'employee', 'employee_detail',
             # System
@@ -139,6 +161,25 @@ class AttendanceDetailSerializer(serializers.ModelSerializer):
             return ""
         return format_seconds_to_time(obj.seconds_extra_time)
     
+    def get_office_time_formatted(self, obj):
+        """Format office time worked"""
+        return format_seconds_to_time(obj.office_seconds_worked)
+    
+    def get_home_time_formatted(self, obj):
+        """Format home time worked"""
+        return format_seconds_to_time(obj.home_seconds_worked)
+    
+    def get_work_location_summary(self, obj):
+        """Get summary of work locations and times"""
+        parts = []
+        if obj.office_seconds_worked > 0:
+            office_time = format_seconds_to_time(obj.office_seconds_worked)
+            parts.append(f"Office: {office_time}")
+        if obj.home_seconds_worked > 0:
+            home_time = format_seconds_to_time(obj.home_seconds_worked)
+            parts.append(f"Home: {home_time}")
+        return ", ".join(parts) if parts else ""
+    
     def get_employee_detail(self, obj):
         """Get employee details"""
         return {
@@ -158,9 +199,10 @@ class AttendanceCreateUpdateSerializer(serializers.ModelSerializer):
         model = Attendance
         fields = [
             'employee', 'date', 'in_time', 'out_time',
+            'office_in_time', 'office_out_time', 'home_in_time', 'home_out_time',
             'office_working_hours', 'orignal_total_time',
             'day_type', 'day_text', 'text',
-            'is_day_before_joining'
+            'is_day_before_joining', 'is_working_from_home'
         ]
     
     def validate(self, data):
@@ -174,7 +216,42 @@ class AttendanceCreateUpdateSerializer(serializers.ModelSerializer):
 class CheckInSerializer(serializers.Serializer):
     """Serializer for check-in action"""
     date = serializers.DateField(required=False, help_text="Date for check-in (defaults to today)")
+    location = serializers.ChoiceField(
+        choices=['OFFICE', 'HOME'],
+        required=False,
+        help_text="Work location: OFFICE or HOME (not required if is_work_from_home is true)"
+    )
     notes = serializers.CharField(required=False, allow_blank=True, help_text="Optional notes")
+    is_work_from_home = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text="Mark as working from home"
+    )
+    is_working_from_home = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text="Mark as working from home (alias for is_work_from_home)"
+    )
+    check_in = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        help_text="Check-in time in 12-hour format (e.g., '12:00 PM') - used when working from home (deprecated, use home_check_in)"
+    )
+    check_out = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        help_text="Check-out time in 12-hour format (e.g., '09:30 PM') - used when working from home (deprecated, use home_check_out)"
+    )
+    home_check_in = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        help_text="Home check-in time in 12-hour format (e.g., '12:00 PM') - used when working from home"
+    )
+    home_check_out = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        help_text="Home check-out time in 12-hour format (e.g., '09:30 PM') - used when working from home"
+    )
     
     def validate_date(self, value):
         """Validate date is not in the future"""
@@ -183,11 +260,95 @@ class CheckInSerializer(serializers.Serializer):
         if value > today:
             raise serializers.ValidationError("Cannot check-in for a future date.")
         return value
+    
+    def validate(self, data):
+        """Validate that location or is_work_from_home is provided"""
+        is_work_from_home = data.get('is_work_from_home', False) or data.get('is_working_from_home', False)
+        location = data.get('location')
+        # Support both old and new field names
+        check_in = data.get('home_check_in', '') or data.get('check_in', '')
+        check_out = data.get('home_check_out', '') or data.get('check_out', '')
+        notes = data.get('notes', '')
+        date = data.get('date')
+        
+        # If working from home, validate required fields
+        if is_work_from_home:
+            errors = {}
+            
+            # Date is required
+            if not date:
+                errors['date'] = "Date is required when working from home."
+            
+            # Check-in time is required
+            if not check_in:
+                errors['home_check_in'] = "Home check-in time is required when working from home."
+            
+            # Check-out time is required
+            if not check_out:
+                errors['home_check_out'] = "Home check-out time is required when working from home."
+            
+            # Notes (reason) is required
+            if not notes or not notes.strip():
+                errors['notes'] = "Reason is required when working from home."
+            
+            if errors:
+                raise serializers.ValidationError(errors)
+            
+            # Store the values with the new field names for consistency
+            if data.get('check_in') and not data.get('home_check_in'):
+                data['home_check_in'] = data['check_in']
+            if data.get('check_out') and not data.get('home_check_out'):
+                data['home_check_out'] = data['check_out']
+            
+            return data
+        
+        # If not working from home, location is required
+        if not location:
+            raise serializers.ValidationError({
+                "location": "Location is required when not working from home."
+            })
+        
+        return data
+    
+    def parse_time_string(self, time_str, date):
+        """Parse time string like '12:00 PM' to datetime"""
+        from django.utils import timezone
+        from datetime import datetime
+        import re
+        
+        if not time_str:
+            return None
+        
+        # Parse 12-hour format: "12:00 PM" or "09:30 PM"
+        time_pattern = r'(\d{1,2}):(\d{2})\s*(AM|PM)'
+        match = re.match(time_pattern, time_str.strip(), re.IGNORECASE)
+        
+        if not match:
+            raise serializers.ValidationError(f"Invalid time format: {time_str}. Use format like '12:00 PM'")
+        
+        hour = int(match.group(1))
+        minute = int(match.group(2))
+        am_pm = match.group(3).upper()
+        
+        # Convert to 24-hour format
+        if am_pm == 'PM' and hour != 12:
+            hour += 12
+        elif am_pm == 'AM' and hour == 12:
+            hour = 0
+        
+        # Create datetime with the provided date
+        dt = datetime.combine(date, datetime.min.time().replace(hour=hour, minute=minute))
+        return timezone.make_aware(dt)
 
 
 class CheckOutSerializer(serializers.Serializer):
     """Serializer for check-out action"""
     date = serializers.DateField(required=False, help_text="Date for check-out (defaults to today)")
+    location = serializers.ChoiceField(
+        choices=['OFFICE', 'HOME'],
+        required=True,
+        help_text="Work location: OFFICE or HOME"
+    )
     notes = serializers.CharField(required=False, allow_blank=True, help_text="Optional notes")
     
     def validate_date(self, value):
@@ -251,7 +412,7 @@ class MonthlyAttendanceSerializer(serializers.Serializer):
                 day_type = "WEEKEND_OFF"
             elif is_future:
                 day_type = "WORKING_DAY"  # FUTURE_WORKING_DAY removed
-            elif attendance and attendance.in_time and attendance.out_time:
+            elif attendance and ((attendance.office_in_time and attendance.office_out_time) or (attendance.home_in_time and attendance.home_out_time)):
                 day_type = "WORKING_DAY"
             else:
                 day_type = "WORKING_DAY"
@@ -263,8 +424,10 @@ class MonthlyAttendanceSerializer(serializers.Serializer):
             if attendance:
                 office_hours = attendance.office_working_hours or default_office_hours
                 total_time = attendance.orignal_total_time or default_total_time
-                in_time_str = format_datetime_to_iso(attendance.in_time) if attendance.in_time else ""
-                out_time_str = format_datetime_to_iso(attendance.out_time) if attendance.out_time else ""
+                office_in_time_str = format_datetime_to_iso(attendance.office_in_time) if attendance.office_in_time else ""
+                office_out_time_str = format_datetime_to_iso(attendance.office_out_time) if attendance.office_out_time else ""
+                home_in_time_str = format_datetime_to_iso(attendance.home_in_time) if attendance.home_in_time else ""
+                home_out_time_str = format_datetime_to_iso(attendance.home_out_time) if attendance.home_out_time else ""
                 total_time_str = format_seconds_to_time(attendance.seconds_actual_worked_time)
                 extra_time_str = format_seconds_to_time(attendance.seconds_extra_time)
                 
@@ -276,8 +439,10 @@ class MonthlyAttendanceSerializer(serializers.Serializer):
             else:
                 office_hours = default_office_hours
                 total_time = default_total_time
-                in_time_str = ""
-                out_time_str = ""
+                office_in_time_str = ""
+                office_out_time_str = ""
+                home_in_time_str = ""
+                home_out_time_str = ""
                 total_time_str = ""
                 extra_time_str = ""
             
@@ -286,16 +451,19 @@ class MonthlyAttendanceSerializer(serializers.Serializer):
                 "date": current_date.strftime(DATE_FORMAT),
                 "day": day_name,
                 "office_working_hours": office_hours,
-                "admin_alert": 1 if (not attendance or not attendance.in_time or not attendance.out_time) and not is_future and not is_holiday and not is_weekend else 0,
-                "admin_alert_message": ADMIN_ALERT_MESSAGE_MISSING_TIME if (not attendance or not attendance.in_time or not attendance.out_time) and not is_future and not is_holiday and not is_weekend else "",
+                "admin_alert": 1 if (not attendance or not ((attendance.office_in_time and attendance.office_out_time) or (attendance.home_in_time and attendance.home_out_time))) and not is_future and not is_holiday and not is_weekend else 0,
+                "admin_alert_message": ADMIN_ALERT_MESSAGE_MISSING_TIME if (not attendance or not ((attendance.office_in_time and attendance.office_out_time) or (attendance.home_in_time and attendance.home_out_time))) and not is_future and not is_holiday and not is_weekend else "",
                 "day_text": attendance.day_text if attendance else "",
                 "day_type": day_type,
                 "extra_time": extra_time_str,
                 "extra_time_status": attendance.extra_time_status if attendance else "",
-                "in_time": in_time_str,
+                "office_in_time": office_in_time_str,
+                "office_out_time": office_out_time_str,
+                "home_in_time": home_in_time_str,
+                "home_out_time": home_out_time_str,
+                "is_working_from_home": attendance.is_working_from_home if attendance else False,
                 "office_time_inside": attendance.office_time_inside if attendance else 0,
                 "orignal_total_time": attendance.orignal_total_time if attendance else total_time,
-                "out_time": out_time_str,
                 "seconds_actual_worked_time": attendance.seconds_actual_worked_time if attendance else 0,
                 "seconds_actual_working_time": attendance.seconds_actual_working_time if attendance else 0,
                 "seconds_extra_time": attendance.seconds_extra_time if attendance else 0,

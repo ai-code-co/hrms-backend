@@ -26,6 +26,12 @@ class Attendance(models.Model):
         ('', 'No Extra Time'),
     ]
     
+    # Work Location Choices
+    WORK_LOCATION_CHOICES = [
+        ('OFFICE', 'Office'),
+        ('HOME', 'Home'),
+    ]
+    
     # Employee relationship
     employee = models.ForeignKey(
         Employee,
@@ -40,16 +46,38 @@ class Attendance(models.Model):
         help_text="Attendance date"
     )
     
-    # Check-in/Check-out times
+    # Check-in/Check-out times (kept for backward compatibility)
     in_time = models.DateTimeField(
         null=True,
         blank=True,
-        help_text="Check-in time"
+        help_text="Check-in time (calculated from location times)"
     )
     out_time = models.DateTimeField(
         null=True,
         blank=True,
-        help_text="Check-out time"
+        help_text="Check-out time (calculated from location times)"
+    )
+    
+    # Location-specific check-in/check-out times
+    office_in_time = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="Office check-in time"
+    )
+    office_out_time = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="Office check-out time"
+    )
+    home_in_time = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="Home check-in time"
+    )
+    home_out_time = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="Home check-out time"
     )
     
     # Working hours
@@ -79,6 +107,16 @@ class Attendance(models.Model):
     office_time_inside = models.IntegerField(
         default=0,
         help_text="Time spent inside office in seconds"
+    )
+    
+    # Location-specific worked time (in seconds)
+    office_seconds_worked = models.IntegerField(
+        default=0,
+        help_text="Time worked at office in seconds"
+    )
+    home_seconds_worked = models.IntegerField(
+        default=0,
+        help_text="Time worked at home in seconds"
     )
     
     # Status and type
@@ -119,6 +157,10 @@ class Attendance(models.Model):
     is_day_before_joining = models.BooleanField(
         default=False,
         help_text="Is this day before employee joining date"
+    )
+    is_working_from_home = models.BooleanField(
+        default=False,
+        help_text="Is employee working from home"
     )
     
     # System fields
@@ -166,11 +208,28 @@ class Attendance(models.Model):
             if self.out_time < self.in_time:
                 raise ValidationError("Check-out time cannot be before check-in time.")
 
+        # Validate location-specific times
+        if self.office_out_time and self.office_in_time:
+            if self.office_out_time < self.office_in_time:
+                raise ValidationError("Office check-out time cannot be before office check-in time.")
+        
+        if self.home_out_time and self.home_in_time:
+            if self.home_out_time < self.home_in_time:
+                raise ValidationError("Home check-out time cannot be before home check-in time.")
+
         # Ensure timezone-aware datetimes to avoid incorrect time diff calculations
         if self.in_time and not timezone.is_aware(self.in_time):
             raise ValidationError("Check-in time must be timezone-aware.")
         if self.out_time and not timezone.is_aware(self.out_time):
             raise ValidationError("Check-out time must be timezone-aware.")
+        if self.office_in_time and not timezone.is_aware(self.office_in_time):
+            raise ValidationError("Office check-in time must be timezone-aware.")
+        if self.office_out_time and not timezone.is_aware(self.office_out_time):
+            raise ValidationError("Office check-out time must be timezone-aware.")
+        if self.home_in_time and not timezone.is_aware(self.home_in_time):
+            raise ValidationError("Home check-in time must be timezone-aware.")
+        if self.home_out_time and not timezone.is_aware(self.home_out_time):
+            raise ValidationError("Home check-out time must be timezone-aware.")
         
         if self.is_day_before_joining and self.employee:
             if self.date >= self.employee.joining_date:
@@ -178,25 +237,55 @@ class Attendance(models.Model):
     
     def save(self, *args, **kwargs):
         """Override save to calculate time fields and set alerts"""
-        worked_seconds = AttendanceCalculationService.calculate_worked_seconds(
-            self.in_time, self.out_time
+        # Calculate location-specific worked time
+        self.office_seconds_worked = AttendanceCalculationService.calculate_location_seconds(
+            self.office_in_time, self.office_out_time
         )
-
-        if worked_seconds > 0:
-            self.seconds_actual_worked_time = worked_seconds
-            self.seconds_actual_working_time = worked_seconds
-            self.office_time_inside = worked_seconds
+        self.home_seconds_worked = AttendanceCalculationService.calculate_location_seconds(
+            self.home_in_time, self.home_out_time
+        )
+        
+        # Calculate total worked time from locations
+        total_worked_seconds = AttendanceCalculationService.calculate_total_worked_seconds(self)
+        
+        # Update backward-compatible in_time and out_time
+        earliest_checkin = AttendanceCalculationService.get_earliest_checkin(self)
+        latest_checkout = AttendanceCalculationService.get_latest_checkout(self)
+        
+        if earliest_checkin:
+            self.in_time = earliest_checkin
+        if latest_checkout:
+            self.out_time = latest_checkout
+        
+        # If location times exist, use them; otherwise fall back to in_time/out_time
+        if total_worked_seconds > 0:
+            self.seconds_actual_worked_time = total_worked_seconds
+            self.seconds_actual_working_time = total_worked_seconds
+            self.office_time_inside = self.office_seconds_worked  # Only office time
             self.seconds_extra_time = AttendanceCalculationService.calculate_extra_seconds(
-                worked_seconds, self.orignal_total_time
+                total_worked_seconds, self.orignal_total_time
             )
             self.extra_time_status = AttendanceCalculationService.extra_time_status(self.seconds_extra_time)
         else:
-            # Reset if times are missing
-            self.seconds_actual_worked_time = 0
-            self.seconds_actual_working_time = 0
-            self.office_time_inside = 0
-            self.seconds_extra_time = 0
-            self.extra_time_status = ''
+            # Fallback to old calculation if location times not set
+            worked_seconds = AttendanceCalculationService.calculate_worked_seconds(
+                self.in_time, self.out_time
+            )
+            if worked_seconds > 0:
+                self.seconds_actual_worked_time = worked_seconds
+                self.seconds_actual_working_time = worked_seconds
+                self.office_time_inside = worked_seconds
+                self.seconds_extra_time = AttendanceCalculationService.calculate_extra_seconds(
+                    worked_seconds, self.orignal_total_time
+                )
+                self.extra_time_status = AttendanceCalculationService.extra_time_status(self.seconds_extra_time)
+            else:
+                # Reset if times are missing
+                self.seconds_actual_worked_time = 0
+                self.seconds_actual_working_time = 0
+                self.office_time_inside = 0
+                self.seconds_extra_time = 0
+                self.extra_time_status = ''
 
         # Set admin alert only for relevant day types
         if AttendanceCalculationService.should_flag_admin_alert(self):
