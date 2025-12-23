@@ -144,6 +144,7 @@ class Employee(models.Model):
     
     # ========== SYSTEM FIELDS ==========
     is_active = models.BooleanField(default=True)
+    slack_user_id = models.CharField(max_length=50, blank=True, null=True, help_text="Slack ID for notifications")
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
     created_by = models.ForeignKey(

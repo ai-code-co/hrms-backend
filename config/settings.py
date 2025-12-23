@@ -45,6 +45,7 @@ INSTALLED_APPS = [
     'leaves.apps.LeavesConfig',
     'attendance.apps.AttendanceConfig',
     'payroll.apps.PayrollConfig',
+    'notifications.apps.NotificationsConfig',
     'drf_yasg',
     'django.contrib.admin',
     'django.contrib.auth',
@@ -272,7 +273,7 @@ SWAGGER_SETTINGS = {
     'USE_SESSION_AUTH': False,
 }
 
-CSRF_TRUSTED_ORIGINS = ["https://*.onrender.com",  "https://hrms-frontend-wheat.vercel.app",]
+CSRF_TRUSTED_ORIGINS = ["https://*.onrender.com","https://*.ngrok-free.dev", "https://hrms-frontend-wheat.vercel.app", "https://protrudent-wallace-bifurcately.ngrok-free.dev"]
 
 LOGGING = {
     'version': 1,
