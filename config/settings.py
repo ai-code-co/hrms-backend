@@ -44,6 +44,7 @@ INSTALLED_APPS = [
     'inventory.apps.InventoryConfig',
     'leaves.apps.LeavesConfig',
     'attendance.apps.AttendanceConfig',
+    'payroll.apps.PayrollConfig',
     'drf_yasg',
     'django.contrib.admin',
     'django.contrib.auth',
