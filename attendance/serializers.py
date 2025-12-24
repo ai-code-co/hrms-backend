@@ -479,11 +479,11 @@ class MonthlyAttendanceSerializer(serializers.Serializer):
                 # Only count APPROVED timesheets in totals (or records without timesheet_status for backward compatibility)
                 timesheet_status = getattr(attendance, 'timesheet_status', None)
                 if timesheet_status is None or timesheet_status == 'APPROVED':
-                    total_seconds_worked += attendance.seconds_actual_worked_time
-                    total_seconds_extra += attendance.seconds_extra_time
-                    
-                    if attendance.seconds_extra_time < 0:
-                        seconds_to_compensate += abs(attendance.seconds_extra_time)
+                        total_seconds_worked += attendance.seconds_actual_worked_time
+                        total_seconds_extra += attendance.seconds_extra_time
+                        
+                        if attendance.seconds_extra_time < 0:
+                            seconds_to_compensate += abs(attendance.seconds_extra_time)
             else:
                 office_hours = default_office_hours
                 total_time = default_total_time
