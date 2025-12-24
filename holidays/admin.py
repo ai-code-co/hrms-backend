@@ -7,7 +7,7 @@ class HolidayAdmin(admin.ModelAdmin):
     """Admin interface for Holiday model"""
     list_display = [
         'name', 'date', 'country', 'region', 
-        'holiday_type', 'is_active', 'created_at'
+        'holiday_type', 'is_active', 'created_by', 'created_at'
     ]
     list_filter = [
         'holiday_type', 'country', 'is_active', 
@@ -28,12 +28,17 @@ class HolidayAdmin(admin.ModelAdmin):
         ('Settings', {
             'fields': ('holiday_type', 'is_active')
         }),
-        ('Timestamps', {
-            'fields': ('created_at', 'updated_at'),
+        ('Audit Information', {
+            'fields': ('created_by', 'updated_by', 'created_at', 'updated_at'),
             'classes': ('collapse',)
         }),
     )
     
-    readonly_fields = ['created_at', 'updated_at']
-
-
+    readonly_fields = ['created_at', 'updated_at', 'created_by', 'updated_by']
+    
+    def save_model(self, request, obj, form, change):
+        """Set created_by/updated_by when saving from admin"""
+        if not change:  # Creating new object
+            obj.created_by = request.user
+        obj.updated_by = request.user
+        super().save_model(request, obj, form, change)
