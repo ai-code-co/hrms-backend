@@ -150,6 +150,12 @@ class Attendance(models.Model):
         help_text="Additional text field"
     )
     
+    # Keyword Tracking Fields
+    standup_time = models.DateTimeField(null=True, blank=True)
+    report_time = models.DateTimeField(null=True, blank=True)
+    lunch_start_time = models.DateTimeField(null=True, blank=True)
+    lunch_end_time = models.DateTimeField(null=True, blank=True)
+    
     is_working_from_home = models.BooleanField(
         default=False,
         help_text="Is employee working from home"
@@ -322,10 +328,8 @@ class Attendance(models.Model):
         # Derive hybrid day if both office and home time exist and no special day_type set
         has_office_time = self.office_seconds_worked > 0 or (self.office_in_time and self.office_out_time)
         has_home_time = self.home_seconds_worked > 0 or (self.home_in_time and self.home_out_time)
-        if has_office_time and has_home_time and self.day_type in ['WORKING_DAY', 'HALF_DAY', 'HYBRID_DAY']:
+        if self.day_type == 'WORKING_DAY' and has_office_time and has_home_time:
             self.day_type = 'HYBRID_DAY'
-        elif self.day_type == 'HYBRID_DAY' and not (has_office_time and has_home_time):
-            self.day_type = 'WORKING_DAY'
 
         # Set admin alert only for relevant day types
         if AttendanceCalculationService.should_flag_admin_alert(self):
