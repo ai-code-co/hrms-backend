@@ -1,4 +1,5 @@
 from django.db import models
+from django.conf import settings
 from django.core.exceptions import ValidationError
 
 
@@ -45,6 +46,24 @@ class Holiday(models.Model):
         default=True,
         help_text="Whether this holiday is currently active"
     )
+    
+    # Audit fields
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='created_holidays',
+        help_text="User who created this holiday"
+    )
+    updated_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='updated_holidays',
+        help_text="User who last updated this holiday"
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -68,5 +87,3 @@ class Holiday(models.Model):
         # Check if date is in the past (optional validation)
         # You can add more validation logic here if needed
         pass
-
-

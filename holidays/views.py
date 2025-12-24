@@ -25,7 +25,7 @@ class HolidayViewSet(viewsets.ModelViewSet):
     retrieve: Get single holiday details - All authenticated users
     create: Create new holiday (Admin/Manager/HR only)
     update: Update holiday (Admin/Manager/HR only)
-    destroy: Delete holiday (Admin/Manager/HR only)
+    destroy: Soft delete holiday (Admin/Manager/HR only)
     """
     queryset = Holiday.objects.all()
     permission_classes = [IsAuthenticated]
@@ -64,9 +64,7 @@ class HolidayViewSet(viewsets.ModelViewSet):
         if year:
             try:
                 year_int = int(year)
-                queryset = queryset.filter(
-                    date__year=year_int
-                )
+                queryset = queryset.filter(date__year=year_int)
             except ValueError:
                 pass
         
@@ -86,6 +84,23 @@ class HolidayViewSet(viewsets.ModelViewSet):
         
         return queryset
     
+    def perform_create(self, serializer):
+        """Set created_by and updated_by when creating"""
+        serializer.save(
+            created_by=self.request.user,
+            updated_by=self.request.user
+        )
+    
+    def perform_update(self, serializer):
+        """Set updated_by when updating"""
+        serializer.save(updated_by=self.request.user)
+    
+    def perform_destroy(self, instance):
+        """Soft delete - set is_active=False instead of hard deleting"""
+        instance.is_active = False
+        instance.updated_by = self.request.user
+        instance.save()
+    
     @action(detail=False, methods=['get'])
     def upcoming(self, request):
         """Get upcoming holidays"""
@@ -96,26 +111,31 @@ class HolidayViewSet(viewsets.ModelViewSet):
         ).order_by('date')[:10]  # Next 10 holidays
         
         serializer = self.get_serializer(holidays, many=True)
-        return Response(serializer.data)
+        return Response({
+            "error": 0,
+            "data": serializer.data
+        })
     
     @action(detail=False, methods=['get'])
     def by_year(self, request):
         """Get holidays grouped by year"""
         year = request.query_params.get('year', None)
         if not year:
-            return Response(
-                {'error': 'year parameter is required'},
-                status=status.HTTP_400_BAD_REQUEST
-            )
+            return Response({
+                "error": 1,
+                "message": "year parameter is required"
+            }, status=status.HTTP_400_BAD_REQUEST)
         
         try:
             year_int = int(year)
             holidays = self.get_queryset().filter(date__year=year_int)
             serializer = self.get_serializer(holidays, many=True)
-            return Response(serializer.data)
+            return Response({
+                "error": 0,
+                "data": serializer.data
+            })
         except ValueError:
-            return Response(
-                {'error': 'Invalid year format'},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-
+            return Response({
+                "error": 1,
+                "message": "Invalid year format"
+            }, status=status.HTTP_400_BAD_REQUEST)
