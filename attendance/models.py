@@ -17,6 +17,7 @@ class Attendance(models.Model):
         ('LEAVE_DAY', 'Leave Day'),
         ('HOLIDAY', 'Holiday'),
         ('WEEKEND_OFF', 'Weekend Off'),
+        ('HYBRID_DAY', 'Hybrid Day'),
     ]
     
     # Extra Time Status Choices
@@ -96,10 +97,6 @@ class Attendance(models.Model):
         default=0,
         help_text="Actual time worked in seconds"
     )
-    seconds_actual_working_time = models.IntegerField(
-        default=0,
-        help_text="Actual working time in seconds"
-    )
     seconds_extra_time = models.IntegerField(
         default=0,
         help_text="Extra/overtime in seconds (can be negative for undertime)"
@@ -153,14 +150,56 @@ class Attendance(models.Model):
         help_text="Additional text field"
     )
     
-    # Flags
-    is_day_before_joining = models.BooleanField(
-        default=False,
-        help_text="Is this day before employee joining date"
-    )
     is_working_from_home = models.BooleanField(
         default=False,
         help_text="Is employee working from home"
+    )
+    
+    # Timesheet submission fields
+    TIMESHEET_STATUS_CHOICES = [
+        ('PENDING', 'Pending'),
+        ('APPROVED', 'Approved'),
+        ('REJECTED', 'Rejected'),
+    ]
+    
+    tracker_screenshot = models.FileField(
+        upload_to='attendance/uploads/timesheetDocuments/',
+        null=True,
+        blank=True,
+        help_text="Tracker screenshot for work from home"
+    )
+    
+    timesheet_status = models.CharField(
+        max_length=20,
+        choices=TIMESHEET_STATUS_CHOICES,
+        default='PENDING',
+        help_text="Timesheet approval status"
+    )
+    
+    timesheet_submitted_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="When timesheet was submitted"
+    )
+    
+    timesheet_approved_by = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='approved_timesheets',
+        help_text="Admin who approved/rejected the timesheet"
+    )
+    
+    timesheet_approved_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="When timesheet was approved/rejected"
+    )
+    
+    timesheet_admin_notes = models.TextField(
+        blank=True,
+        help_text="Admin notes (required for rejection, optional for approval)"
     )
     
     # System fields
@@ -230,10 +269,6 @@ class Attendance(models.Model):
             raise ValidationError("Home check-in time must be timezone-aware.")
         if self.home_out_time and not timezone.is_aware(self.home_out_time):
             raise ValidationError("Home check-out time must be timezone-aware.")
-        
-        if self.is_day_before_joining and self.employee:
-            if self.date >= self.employee.joining_date:
-                raise ValidationError("Date cannot be on or after joining date if marked as day before joining.")
     
     def save(self, *args, **kwargs):
         """Override save to calculate time fields and set alerts"""
@@ -260,7 +295,6 @@ class Attendance(models.Model):
         # If location times exist, use them; otherwise fall back to in_time/out_time
         if total_worked_seconds > 0:
             self.seconds_actual_worked_time = total_worked_seconds
-            self.seconds_actual_working_time = total_worked_seconds
             self.office_time_inside = self.office_seconds_worked  # Only office time
             self.seconds_extra_time = AttendanceCalculationService.calculate_extra_seconds(
                 total_worked_seconds, self.orignal_total_time
@@ -273,7 +307,6 @@ class Attendance(models.Model):
             )
             if worked_seconds > 0:
                 self.seconds_actual_worked_time = worked_seconds
-                self.seconds_actual_working_time = worked_seconds
                 self.office_time_inside = worked_seconds
                 self.seconds_extra_time = AttendanceCalculationService.calculate_extra_seconds(
                     worked_seconds, self.orignal_total_time
@@ -282,10 +315,17 @@ class Attendance(models.Model):
             else:
                 # Reset if times are missing
                 self.seconds_actual_worked_time = 0
-                self.seconds_actual_working_time = 0
                 self.office_time_inside = 0
                 self.seconds_extra_time = 0
                 self.extra_time_status = ''
+
+        # Derive hybrid day if both office and home time exist and no special day_type set
+        has_office_time = self.office_seconds_worked > 0 or (self.office_in_time and self.office_out_time)
+        has_home_time = self.home_seconds_worked > 0 or (self.home_in_time and self.home_out_time)
+        if has_office_time and has_home_time and self.day_type in ['WORKING_DAY', 'HALF_DAY', 'HYBRID_DAY']:
+            self.day_type = 'HYBRID_DAY'
+        elif self.day_type == 'HYBRID_DAY' and not (has_office_time and has_home_time):
+            self.day_type = 'WORKING_DAY'
 
         # Set admin alert only for relevant day types
         if AttendanceCalculationService.should_flag_admin_alert(self):
