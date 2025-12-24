@@ -3,6 +3,8 @@ from rest_framework import viewsets, status, permissions
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.views import APIView
+from drf_yasg.utils import swagger_auto_schema
+from drf_yasg import openapi
 from django.utils.dateparse import parse_date
 from django.utils import timezone
 from datetime import timedelta, date
@@ -33,6 +35,21 @@ class LeaveViewSet(viewsets.ModelViewSet):
         
         return Leave.objects.filter(employee=user.employee_profile)
 
+    @swagger_auto_schema(
+        operation_description="Gateway endpoint to handle different actions (e.g., apply_leave, get_days_between_leaves).",
+        request_body=openapi.Schema(
+            type=openapi.TYPE_OBJECT,
+            properties={
+                'action': openapi.Schema(
+                    type=openapi.TYPE_STRING, 
+                    enum=['apply_leave', 'get_days_between_leaves'],
+                    description="Action to perform"
+                ),
+            },
+            required=['action']
+        ),
+        responses={200: openapi.Response("Successful Dispatch")}
+    )
     def create(self, request, *args, **kwargs):
         """
         Gateway method to handle different actions if sent to the main POST endpoint.
@@ -55,6 +72,17 @@ class LeaveViewSet(viewsets.ModelViewSet):
             raise serializers.ValidationError("User must have an employee profile")
         serializer.save(employee=user.employee_profile)
 
+    @swagger_auto_schema(
+        operation_description="Calculate working days, weekends, and holidays between two dates.",
+        request_body=LeaveCalculationSerializer,
+        responses={200: openapi.Response("Success", openapi.Schema(
+            type=openapi.TYPE_OBJECT,
+            properties={
+                "error": openapi.Schema(type=openapi.TYPE_INTEGER),
+                "data": openapi.Schema(type=openapi.TYPE_OBJECT)
+            }
+        ))}
+    )
     @action(detail=False, methods=['post'], url_path='calculate-days')
     def calculate_days(self, request):
         """
@@ -146,6 +174,11 @@ class LeaveViewSet(viewsets.ModelViewSet):
         return Response(response_data)
 
 
+    @swagger_auto_schema(
+        operation_description="Submit a new leave request (Alternative REST endpoint).",
+        request_body=LeaveSerializer,
+        responses={201: openapi.Response("Leave applied successfully")}
+    )
     @action(detail=False, methods=['post'], url_path='submit-leave')
     def submit_leave(self, request):
         """
@@ -200,6 +233,10 @@ class LeaveViewSet(viewsets.ModelViewSet):
         # If the user wants a standalone upload endpoint that just saves the file and returns success:
         return Response({"error": 0, "message": "Uploaded successfully!!"})
 
+    @swagger_auto_schema(
+        operation_description="Get leave balance for the logged-in user.",
+        responses={200: LeaveBalanceSerializer(many=True)}
+    )
     @action(detail=False, methods=['get'], url_path='balance')
     def get_balance(self, request):
         """

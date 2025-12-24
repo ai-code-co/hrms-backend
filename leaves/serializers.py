@@ -4,6 +4,8 @@ from django.utils import timezone
 from datetime import datetime
 
 class LeaveSerializer(serializers.ModelSerializer):
+    no_of_days = serializers.DecimalField(max_digits=5, decimal_places=1, coerce_to_string=False, default=1.0)
+    
     class Meta:
         model = Leave
         fields = [

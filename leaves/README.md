@@ -36,6 +36,12 @@ Authorization: Bearer <your_jwt_token>
 
 ---
 
+## 🛠 Testing with Swagger
+
+For a step-by-step guide on how to authenticate and test these APIs using the Swagger UI, see the [Leaves API Testing Guide](file:///Users/medhavi/.gemini/antigravity/brain/7be0fa9d-509b-445c-a995-bb82f74f9db5/leaves_api_testing_guide.md).
+
+---
+
 ## Endpoint Details
 
 ### 1. Calculate Working Days
