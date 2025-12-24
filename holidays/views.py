@@ -1,7 +1,7 @@
 from rest_framework import viewsets, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
-from rest_framework.permissions import IsAuthenticated
+from rest_framework.permissions import IsAuthenticated, IsAdminUser
 from rest_framework.filters import SearchFilter, OrderingFilter
 from django.db.models import Q
 from django.utils import timezone
@@ -21,11 +21,11 @@ class HolidayViewSet(viewsets.ModelViewSet):
     """
     ViewSet for Holiday management
     
-    list: Get all holidays (with filtering and search)
-    retrieve: Get single holiday details
-    create: Create new holiday (Admin/HR only)
-    update: Update holiday (Admin/HR only)
-    destroy: Delete holiday (Admin only)
+    list: Get all holidays (with filtering and search) - All authenticated users
+    retrieve: Get single holiday details - All authenticated users
+    create: Create new holiday (Admin/Manager/HR only)
+    update: Update holiday (Admin/Manager/HR only)
+    destroy: Delete holiday (Admin/Manager/HR only)
     """
     queryset = Holiday.objects.all()
     permission_classes = [IsAuthenticated]
@@ -38,6 +38,12 @@ class HolidayViewSet(viewsets.ModelViewSet):
     search_fields = ['name', 'description', 'country', 'region']
     ordering_fields = ['date', 'name', 'country', 'created_at']
     ordering = ['date', 'name']
+    
+    def get_permissions(self):
+        """Set permissions based on action"""
+        if self.action in ['create', 'update', 'partial_update', 'destroy']:
+            return [IsAuthenticated(), IsAdminUser()]
+        return [IsAuthenticated()]
     
     def get_serializer_class(self):
         """Use different serializers for list and detail"""
