@@ -63,6 +63,35 @@ def format_datetime_to_iso(dt):
     return dt_utc.strftime(DATETIME_ISO_FORMAT)
 
 
+def get_leave_for_date(date, leaves_list):
+    """
+    Find leave that applies to a specific date.
+    Returns: (leave_object, is_rh, is_partial, partial_type)
+    """
+    for leave in leaves_list:
+        if leave.from_date <= date <= leave.to_date:
+            # Check if date is a Restricted Holiday
+            if leave.rh_dates:
+                # Convert all to string for comparison
+                rh_date_strings = []
+                for d in leave.rh_dates:
+                    if isinstance(d, str):
+                        rh_date_strings.append(d)
+                    else:
+                        # Assume date object
+                        rh_date_strings.append(str(d))
+                
+                if str(date) in rh_date_strings:
+                    return (leave, True, False, None)
+            
+            # Check for partial leave
+            if leave.day_status:
+                return (leave, False, True, leave.day_status)
+            
+            return (leave, False, False, None)
+    return (None, False, False, None)
+
+
 class AttendanceListSerializer(serializers.ModelSerializer):
     """Lightweight serializer for attendance lists"""
     employee_name = serializers.CharField(source='employee.get_full_name', read_only=True)
@@ -119,7 +148,7 @@ class AttendanceDetailSerializer(serializers.ModelSerializer):
             # Working hours
             'office_working_hours', 'orignal_total_time',
             # Calculated time (seconds)
-            'seconds_actual_worked_time', 'seconds_actual_working_time',
+            'seconds_actual_worked_time',
             'seconds_extra_time', 'office_time_inside',
             'office_seconds_worked', 'home_seconds_worked',
             # Formatted time strings
@@ -202,7 +231,7 @@ class AttendanceCreateUpdateSerializer(serializers.ModelSerializer):
             'office_in_time', 'office_out_time', 'home_in_time', 'home_out_time',
             'office_working_hours', 'orignal_total_time',
             'day_type', 'day_text', 'text',
-            'is_day_before_joining', 'is_working_from_home'
+            'is_working_from_home'
         ]
     
     def validate(self, data):
@@ -366,10 +395,11 @@ class MonthlyAttendanceSerializer(serializers.Serializer):
     data = serializers.DictField()
     
     @staticmethod
-    def serialize_monthly_data(attendance_records, employee, month, year, holidays_list):
+    def serialize_monthly_data(attendance_records, employee, month, year, holidays_list, leaves_list):
         """Create monthly attendance data structure matching API format"""
         from django.utils import timezone
         from holidays.models import Holiday
+        from leaves.models import Leave
         
         # Get all days in the month
         num_days = monthrange(year, month)[1]
@@ -403,13 +433,28 @@ class MonthlyAttendanceSerializer(serializers.Serializer):
             # Get attendance record if exists
             attendance = attendance_map.get(current_date)
             
-            # Determine day type
+            # Get leave info for current date
+            leave_info = get_leave_for_date(current_date, leaves_list)
+            leave, is_rh, is_partial, partial_type = leave_info
+            
+            # Determine day type with priority: Holiday > Weekend > Leave > Working Day
             if is_before_joining:
                 day_type = "WORKING_DAY"  # Can be customized
             elif is_holiday:
                 day_type = "HOLIDAY"
             elif is_weekend:
                 day_type = "WEEKEND_OFF"
+            elif leave:  # Check for leave
+                if leave.status == Leave.Status.APPROVED:
+                    day_type = "LEAVE_APPROVED"
+                elif leave.status == Leave.Status.PENDING:
+                    day_type = "LEAVE_PENDING"
+                elif leave.status == Leave.Status.REJECTED:
+                    day_type = "LEAVE_REJECTED"
+                elif leave.status == Leave.Status.CANCELLED:
+                    day_type = "LEAVE_CANCELLED"
+                else:
+                    day_type = "WORKING_DAY"
             elif is_future:
                 day_type = "WORKING_DAY"  # FUTURE_WORKING_DAY removed
             elif attendance and ((attendance.office_in_time and attendance.office_out_time) or (attendance.home_in_time and attendance.home_out_time)):
@@ -431,11 +476,14 @@ class MonthlyAttendanceSerializer(serializers.Serializer):
                 total_time_str = format_seconds_to_time(attendance.seconds_actual_worked_time)
                 extra_time_str = format_seconds_to_time(attendance.seconds_extra_time)
                 
-                total_seconds_worked += attendance.seconds_actual_worked_time
-                total_seconds_extra += attendance.seconds_extra_time
-                
-                if attendance.seconds_extra_time < 0:
-                    seconds_to_compensate += abs(attendance.seconds_extra_time)
+                # Only count APPROVED timesheets in totals (or records without timesheet_status for backward compatibility)
+                timesheet_status = getattr(attendance, 'timesheet_status', None)
+                if timesheet_status is None or timesheet_status == 'APPROVED':
+                    total_seconds_worked += attendance.seconds_actual_worked_time
+                    total_seconds_extra += attendance.seconds_extra_time
+                    
+                    if attendance.seconds_extra_time < 0:
+                        seconds_to_compensate += abs(attendance.seconds_extra_time)
             else:
                 office_hours = default_office_hours
                 total_time = default_total_time
@@ -446,14 +494,48 @@ class MonthlyAttendanceSerializer(serializers.Serializer):
                 total_time_str = ""
                 extra_time_str = ""
             
+            # File URL and ID
+            file_url = ""
+            file_id = ""
+            if attendance and attendance.tracker_screenshot:
+                file_url = attendance.tracker_screenshot.url
+                file_id = str(attendance.id)
+            
+            # Status
+            status = ""
+            if attendance and hasattr(attendance, 'timesheet_status'):
+                status = attendance.get_timesheet_status_display()
+            
+            # Comments (from text or day_text)
+            comments = ""
+            if attendance:
+                comments = attendance.text or attendance.day_text or ""
+            
             # Build day record
+            is_on_leave = leave is not None
+            admin_alert = 1 if (
+                not is_on_leave and  # Don't alert if on leave
+                not attendance and 
+                not is_future and 
+                not is_holiday and 
+                not is_weekend
+            ) else 0
+            
+            admin_alert_message = ADMIN_ALERT_MESSAGE_MISSING_TIME if (
+                not is_on_leave and
+                not attendance and 
+                not is_future and 
+                not is_holiday and 
+                not is_weekend
+            ) else ""
+            
             day_record = {
                 "date": current_date.strftime(DATE_FORMAT),
                 "day": day_name,
                 "office_working_hours": office_hours,
-                "admin_alert": 1 if (not attendance or not ((attendance.office_in_time and attendance.office_out_time) or (attendance.home_in_time and attendance.home_out_time))) and not is_future and not is_holiday and not is_weekend else 0,
-                "admin_alert_message": ADMIN_ALERT_MESSAGE_MISSING_TIME if (not attendance or not ((attendance.office_in_time and attendance.office_out_time) or (attendance.home_in_time and attendance.home_out_time))) and not is_future and not is_holiday and not is_weekend else "",
-                "day_text": attendance.day_text if attendance else "",
+                "admin_alert": admin_alert,
+                "admin_alert_message": admin_alert_message,
+                "day_text": leave.reason if leave else (attendance.day_text if attendance else ""),
                 "day_type": day_type,
                 "extra_time": extra_time_str,
                 "extra_time_status": attendance.extra_time_status if attendance else "",
@@ -465,10 +547,21 @@ class MonthlyAttendanceSerializer(serializers.Serializer):
                 "office_time_inside": attendance.office_time_inside if attendance else 0,
                 "orignal_total_time": attendance.orignal_total_time if attendance else total_time,
                 "seconds_actual_worked_time": attendance.seconds_actual_worked_time if attendance else 0,
-                "seconds_actual_working_time": attendance.seconds_actual_working_time if attendance else 0,
                 "seconds_extra_time": attendance.seconds_extra_time if attendance else 0,
                 "text": attendance.text if attendance else "",
                 "total_time": total_time_str,
+                "file": file_url,
+                "fileId": file_id,
+                "status": status,
+                "comments": comments,
+                "leave_id": leave.id if leave else None,
+                "leave_type": leave.leave_type if leave else "",
+                "leave_status": leave.get_status_display() if leave else "",
+                "leave_reason": leave.reason if leave else "",
+                "is_restricted_holiday": is_rh,
+                "is_partial_leave": is_partial,
+                "partial_leave_type": partial_type if partial_type else "",
+                "leave_document": leave.doc_link.url if leave and leave.doc_link else "",
             }
             
             attendance_array.append(day_record)
@@ -477,9 +570,46 @@ class MonthlyAttendanceSerializer(serializers.Serializer):
         compensation_time_str = format_seconds_to_time(seconds_to_compensate)
         actual_working_hours = format_seconds_to_hours_mins(total_seconds_worked)
         
-        # For completed hours, we might need to calculate based on scheduled hours
-        # This is a simplified version - you may need to adjust based on your business logic
-        completed_working_hours = format_seconds_to_hours_mins(total_seconds_worked)
+        # Calculate total working hours for the entire month (including future dates)
+        default_total_time = getattr(settings, 'ATTENDANCE_DEFAULT_TOTAL_TIME_SECONDS', 32400)
+        total_working_days = 0.0
+        
+        for day in range(1, num_days + 1):
+            current_date = datetime(year, month, day).date()
+            is_weekend = current_date.weekday() >= 5  # Saturday=5, Sunday=6
+            is_holiday = current_date in holiday_dates
+            is_before_joining = employee.joining_date and current_date < employee.joining_date
+            
+            # Skip if before joining date
+            if is_before_joining:
+                continue
+            
+            # Skip weekends and holidays
+            if is_weekend or is_holiday:
+                continue
+            
+            # Check for approved leave (including future dates)
+            leave_info = get_leave_for_date(current_date, leaves_list)
+            leave, is_rh, is_partial, partial_type = leave_info
+            
+            # Handle leaves
+            if leave and leave.status == Leave.Status.APPROVED:
+                # For partial leave, count partial hours (0.5 days)
+                if is_partial and partial_type:
+                    total_working_days += 0.5
+                # For restricted holidays, count as full working day
+                elif is_rh:
+                    total_working_days += 1.0
+                # Full day approved leave - skip
+                else:
+                    continue
+            else:
+                # Regular working day (including future dates)
+                total_working_days += 1.0
+        
+        # Calculate total hours for the entire month
+        total_seconds = int(total_working_days * default_total_time)
+        total_working_hours = format_seconds_to_hours_mins(total_seconds)
         
         # Calculate next and previous month
         if month == 12:
@@ -515,7 +645,7 @@ class MonthlyAttendanceSerializer(serializers.Serializer):
             "monthName": month_names[month - 1],
             "monthSummary": {
                 "actual_working_hours": actual_working_hours,
-                "completed_working_hours": completed_working_hours
+                "total_working_hours": total_working_hours
             },
             "nextMonth": {
                 "year": str(next_year),
@@ -540,3 +670,231 @@ class MonthlyAttendanceSerializer(serializers.Serializer):
             "data": data
         }
 
+
+class WeeklyTimesheetSubmitSerializer(serializers.Serializer):
+    """Serializer for submitting weekly timesheet entries"""
+    date = serializers.DateField(required=True)
+    total_time = serializers.CharField(required=True, help_text="Total hours worked (e.g., '8', '8.5')")
+    comments = serializers.CharField(required=False, allow_blank=True, help_text="Comments/work description (required for WFH)")
+    tracker_screenshot = serializers.FileField(required=False, allow_null=True, help_text="Tracker screenshot (required for WFH)")
+    is_working_from_home = serializers.BooleanField(default=False)
+    home_in_time = serializers.CharField(required=False, allow_blank=True, help_text="Home check-in time in 12-hour format (e.g., '10:30 AM') - optional")
+    home_out_time = serializers.CharField(required=False, allow_blank=True, help_text="Home check-out time in 12-hour format (e.g., '06:30 PM') - optional")
+    
+    def validate_date(self, value):
+        """Validate date is not weekend or holiday"""
+        from holidays.models import Holiday
+        
+        # Check if date is weekend
+        if value.weekday() >= 5:  # Saturday=5, Sunday=6
+            raise serializers.ValidationError("Cannot submit timesheet for weekends.")
+        
+        # Check if date is a holiday
+        if Holiday.objects.filter(date=value, is_active=True).exists():
+            holiday = Holiday.objects.get(date=value, is_active=True)
+            raise serializers.ValidationError(f"Cannot submit timesheet for holiday: {holiday.name}")
+        
+        return value
+    
+    def validate(self, data):
+        """Validate WFH requirements and resubmission rules"""
+        is_wfh = data.get('is_working_from_home', False)
+        comments = data.get('comments', '').strip()
+        screenshot = data.get('tracker_screenshot')
+        date = data.get('date')
+        
+        # Check for existing attendance record
+        if date:
+            from .models import Attendance
+            from django.contrib.auth import get_user_model
+            User = get_user_model()
+            
+            # Get employee from request context (will be set in view)
+            employee = self.context.get('employee')
+            if employee:
+                existing = Attendance.objects.filter(
+                    employee=employee,
+                    date=date
+                ).first()
+                
+                if existing:
+                    if existing.timesheet_status in ['PENDING', 'APPROVED']:
+                        raise serializers.ValidationError({
+                            'date': 'Timesheet already submitted for this date. Status: {}'.format(existing.get_timesheet_status_display())
+                        })
+                    # Allow resubmission if status is REJECTED
+        
+        # WFH validation
+        if is_wfh:
+            errors = {}
+            
+            # Comments required (min 20 chars)
+            if not comments or len(comments) < 20:
+                errors['comments'] = 'Valid work description (minimum 20 characters) is required when working from home. Please describe what work was done that day.'
+            
+            # Screenshot required
+            if not screenshot:
+                errors['tracker_screenshot'] = 'Tracker screenshot is required when working from home.'
+            else:
+                # Validate file type
+                allowed_types = ['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'application/pdf']
+                if screenshot.content_type not in allowed_types:
+                    errors['tracker_screenshot'] = 'Invalid file type. Allowed: JPG, PNG, GIF, WEBP, PDF'
+                
+                # Validate file size (5MB max)
+                if screenshot.size > 5 * 1024 * 1024:
+                    errors['tracker_screenshot'] = 'File size exceeds 5MB limit.'
+            
+            if errors:
+                raise serializers.ValidationError(errors)
+        
+        return data
+    
+    def parse_time_string(self, time_str, date):
+        """Parse time string like '12:00 PM' to datetime"""
+        from django.utils import timezone
+        from datetime import datetime
+        import re
+        
+        if not time_str:
+            return None
+        
+        # Parse 12-hour format: "12:00 PM" or "09:30 PM"
+        time_pattern = r'(\d{1,2}):(\d{2})\s*(AM|PM)'
+        match = re.match(time_pattern, time_str.strip(), re.IGNORECASE)
+        
+        if not match:
+            raise serializers.ValidationError(f"Invalid time format: {time_str}. Use format like '12:00 PM'")
+        
+        hour = int(match.group(1))
+        minute = int(match.group(2))
+        am_pm = match.group(3).upper()
+        
+        # Convert to 24-hour format
+        if am_pm == 'PM' and hour != 12:
+            hour += 12
+        elif am_pm == 'AM' and hour == 12:
+            hour = 0
+        
+        # Create datetime with the provided date
+        dt = datetime.combine(date, datetime.min.time().replace(hour=hour, minute=minute))
+        return timezone.make_aware(dt)
+
+
+class WeeklyTimesheetSerializer(serializers.Serializer):
+    """Serializer for weekly timesheet GET response"""
+    
+    @staticmethod
+    def serialize_weekly_data(attendance_records, employee, week_start_date):
+        """Create weekly attendance data structure matching API format"""
+        from django.utils import timezone
+        from holidays.models import Holiday
+        from datetime import timedelta
+        
+        # Calculate week range (Monday to Sunday)
+        # week_start_date should be Monday
+        week_days = []
+        for i in range(7):
+            current_date = week_start_date + timedelta(days=i)
+            week_days.append(current_date)
+        
+        today = timezone.now().date()
+        
+        # Get holidays for the week
+        week_holidays = Holiday.objects.filter(
+            date__gte=week_days[0],
+            date__lte=week_days[6],
+            is_active=True
+        ).values_list('date', 'name')
+        holiday_dates = {h[0]: h[1] for h in week_holidays}
+        
+        # Create attendance map
+        attendance_map = {rec.date: rec for rec in attendance_records}
+        
+        # Build attendance array for all 7 days
+        attendance_array = []
+        
+        for current_date in week_days:
+            day_name = current_date.strftime(DAY_NAME_FORMAT)
+            is_weekend = current_date.weekday() >= 5
+            is_holiday = current_date in holiday_dates
+            is_future = current_date > today
+            
+            # Get attendance record if exists
+            attendance = attendance_map.get(current_date)
+            
+            # Determine day type
+            if is_holiday:
+                day_type = "HOLIDAY"
+            elif is_weekend:
+                day_type = "WEEKEND_OFF"
+            elif is_future:
+                day_type = "WORKING_DAY"
+            elif attendance:
+                day_type = attendance.day_type
+            else:
+                day_type = "WORKING_DAY"
+            
+            # Default office working hours
+            default_office_hours = getattr(settings, 'ATTENDANCE_DEFAULT_WORKING_HOURS', '09:00')
+            default_total_time = getattr(settings, 'ATTENDANCE_DEFAULT_TOTAL_TIME_SECONDS', 32400)
+            
+            if attendance:
+                office_hours = attendance.office_working_hours or default_office_hours
+                total_time = attendance.orignal_total_time or default_total_time
+                
+                # Format times
+                in_time_str = format_time_to_12hr(attendance.home_in_time) if attendance.home_in_time else format_time_to_12hr(attendance.office_in_time) if attendance.office_in_time else ""
+                out_time_str = format_time_to_12hr(attendance.home_out_time) if attendance.home_out_time else format_time_to_12hr(attendance.office_out_time) if attendance.office_out_time else ""
+                
+                # Calculate total hours
+                total_hours = attendance.seconds_actual_worked_time // 3600 if attendance.seconds_actual_worked_time > 0 else 0
+                
+                # File URL
+                file_url = ""
+                file_id = ""
+                if attendance.tracker_screenshot:
+                    file_url = attendance.tracker_screenshot.url
+                    file_id = str(attendance.id)
+                
+                # Status
+                status = attendance.get_timesheet_status_display() if hasattr(attendance, 'timesheet_status') else ""
+                
+                # Comments
+                comments = attendance.text or attendance.day_text or ""
+            else:
+                office_hours = default_office_hours
+                total_time = default_total_time
+                in_time_str = ""
+                out_time_str = ""
+                total_hours = 0
+                file_url = ""
+                file_id = ""
+                status = ""
+                comments = ""
+            
+            # Build day record
+            day_record = {
+                "full_date": current_date.strftime(DATE_FORMAT),
+                "date": current_date.strftime(DAY_NUMBER_FORMAT),
+                "day": day_name,
+                "office_working_hours": office_hours,
+                "total_hours": str(total_hours) if total_hours > 0 else "0",
+                "comments": comments,
+                "file": file_url,
+                "fileId": file_id,
+                "status": status,
+                "is_working_from_home": attendance.is_working_from_home if attendance else False,
+                "in_time": in_time_str,
+                "out_time": out_time_str,
+                "day_type": day_type,
+                "admin_alert": attendance.admin_alert if attendance else (0 if is_future or is_holiday or is_weekend else 1),
+                "admin_alert_message": attendance.admin_alert_message if attendance else ("" if is_future or is_holiday or is_weekend else ADMIN_ALERT_MESSAGE_MISSING_TIME),
+            }
+            
+            attendance_array.append(day_record)
+        
+        return {
+            "error": 0,
+            "data": attendance_array
+        }

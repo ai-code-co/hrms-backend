@@ -79,10 +79,6 @@ class AttendanceCalculationService:
         date = attendance.date
         today = today or timezone.now().date()
 
-        # Before joining date
-        if attendance.employee.joining_date and date < attendance.employee.joining_date:
-            attendance.is_day_before_joining = True
-
         # Weekend
         if date.weekday() >= 5:  # 5=Saturday, 6=Sunday
             attendance.day_type = 'WEEKEND_OFF'

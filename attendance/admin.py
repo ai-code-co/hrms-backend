@@ -34,7 +34,7 @@ class AttendanceAdmin(admin.ModelAdmin):
         'employee__employee_id', 'date', 'admin_alert_message'
     )
     readonly_fields = (
-        'seconds_actual_worked_time', 'seconds_actual_working_time',
+        'seconds_actual_worked_time',
         'seconds_extra_time', 'office_time_inside', 'extra_time_status',
         'office_seconds_worked', 'home_seconds_worked',
         'created_at', 'updated_at', 'created_by', 'updated_by'
@@ -42,7 +42,7 @@ class AttendanceAdmin(admin.ModelAdmin):
     
     fieldsets = (
         ('Employee & Date', {
-            'fields': ('employee', 'date', 'day_type', 'is_day_before_joining', 'is_working_from_home')
+            'fields': ('employee', 'date', 'day_type', 'is_working_from_home')
         }),
         ('Check-in/Check-out (Backward Compatible)', {
             'fields': ('in_time', 'out_time'),
@@ -58,7 +58,7 @@ class AttendanceAdmin(admin.ModelAdmin):
         ('Working Hours', {
             'fields': (
                 'office_working_hours', 'orignal_total_time',
-                'seconds_actual_worked_time', 'seconds_actual_working_time',
+                'seconds_actual_worked_time',
                 'seconds_extra_time', 'office_time_inside', 'extra_time_status'
             )
         }),
