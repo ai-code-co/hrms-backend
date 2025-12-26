@@ -26,6 +26,8 @@ from .utils import verify_password_setup_token
 from rest_framework_simplejwt.views import TokenRefreshView
 from dotenv import load_dotenv
 from .serializers import UserProfileSerializer
+from drf_yasg.utils import swagger_auto_schema
+from drf_yasg import openapi
 
 load_dotenv()
 
@@ -41,6 +43,10 @@ load_dotenv()
 class UserProfileView(APIView):
     permission_classes = [IsAuthenticated]
 
+    @swagger_auto_schema(
+        operation_description="Get the profile of the currently logged-in user.",
+        responses={200: UserProfileSerializer()}
+    )
     def get(self, request):
         serializer = UserProfileSerializer(
             request.user,
@@ -63,6 +69,17 @@ class ForgotPasswordView(APIView):
     """
     permission_classes = [AllowAny]
 
+    @swagger_auto_schema(
+        operation_description="Initiate password reset process by sending an email.",
+        request_body=openapi.Schema(
+            type=openapi.TYPE_OBJECT,
+            properties={
+                'email': openapi.Schema(type=openapi.TYPE_STRING, format='email', description='User email address'),
+            },
+            required=['email']
+        ),
+        responses={200: openapi.Response("Reset email sent if account exists")}
+    )
     def post(self, request):
         email = request.data.get("email")
 
@@ -98,6 +115,11 @@ class SetPasswordView(APIView):
     authentication_classes = []
     permission_classes = []
 
+    @swagger_auto_schema(
+        operation_description="Set new password using a secure token.",
+        request_body=SetPasswordSerializer,
+        responses={200: openapi.Response("Password updated successfully")}
+    )
     def post(self, request):
         print("🔵 STEP 1: Entered SetPasswordView")
 
@@ -169,6 +191,11 @@ class ChangePasswordView(APIView):
 
     permission_classes = [IsAuthenticated]
 
+    @swagger_auto_schema(
+        operation_description="Change internal user password.",
+        request_body=ChangePasswordSerializer,
+        responses={200: openapi.Response("Password changed successfully")}
+    )
     def post(self, request):
         serializer = ChangePasswordSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -204,6 +231,13 @@ class VerifyEmailView(APIView):
     authentication_classes = []
     permission_classes = []
 
+    @swagger_auto_schema(
+        operation_description="Verify user email using a token.",
+        manual_parameters=[
+            openapi.Parameter('token', openapi.IN_PATH, type=openapi.TYPE_STRING, description='Verification token')
+        ],
+        responses={302: openapi.Response("Redirects to set-password page")}
+    )
     def get(self, request, token):
         user_id = verify_email_token(token)
 

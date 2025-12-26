@@ -133,9 +133,32 @@ TEMPLATES = [
 CORS_ALLOW_ALL_ORIGINS = os.environ.get('CORS_ALLOW_ALL_ORIGINS', 'False') == 'True'
 CORS_ALLOW_CREDENTIALS = os.environ.get('CORS_ALLOW_CREDENTIALS', 'True') == 'True'
 
+APPEND_SLASH = False
+
 # For production, specify allowed origins (comma-separated)
 CORS_ALLOWED_ORIGINS = [
     "https://hrms-frontend-wheat.vercel.app",
+]
+
+CORS_ALLOW_HEADERS = [
+    "accept",
+    "accept-encoding",
+    "authorization",
+    "content-type",
+    "dnt",
+    "origin",
+    "user-agent",
+    "x-csrftoken",
+    "x-requested-with",
+]
+
+CORS_ALLOW_METHODS = [
+    "DELETE",
+    "GET",
+    "OPTIONS",
+    "PATCH",
+    "POST",
+    "PUT",
 ]
 
 WSGI_APPLICATION = 'config.wsgi.application'

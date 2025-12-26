@@ -207,7 +207,7 @@ class AdminCreateUserSerializer(serializers.ModelSerializer):
 
 class SetPasswordSerializer(serializers.Serializer):
     token = serializers.CharField()
-    password = serializers.CharField(min_length=8)
+    new_password = serializers.CharField(min_length=8)
 
 
 

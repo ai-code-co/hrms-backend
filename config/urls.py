@@ -35,9 +35,10 @@ schema_view = get_schema_view(
     permission_classes=(permissions.AllowAny,),
 )
 
-from config.views import TableDataView
+from config.views import TableDataView, welcome_view
 
 urlpatterns = [
+    path('', welcome_view, name='welcome'),
     path('api/slack/interactions/', include('notifications.urls')),
     path('slack/interactions/', include('notifications.urls')), # Root fallback
     path('jet/', include('jet.urls', 'jet')),  

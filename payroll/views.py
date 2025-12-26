@@ -4,6 +4,8 @@ from rest_framework.permissions import IsAuthenticated
 from .models import SalaryStructure, Payslip, PayrollConfig
 from .serializers import SalaryStructureSerializer, PayslipSerializer, SalaryOverviewSerializer, PayrollConfigSerializer
 from .services import PayrollService
+from drf_yasg.utils import swagger_auto_schema
+from drf_yasg import openapi
 from employees.models import Employee
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
@@ -15,6 +17,30 @@ class UserSalaryInfoView(APIView):
     """
     permission_classes = [IsAuthenticated]
 
+    @swagger_auto_schema(
+        operation_description="Get current monthly salary preview and previous payslip history.",
+        responses={200: openapi.Response(
+            description="Detailed salary and payslip information",
+            schema=openapi.Schema(
+                type=openapi.TYPE_OBJECT,
+                properties={
+                    "error": openapi.Schema(type=openapi.TYPE_INTEGER),
+                    "data": openapi.Schema(
+                        type=openapi.TYPE_OBJECT,
+                        properties={
+                            "id": openapi.Schema(type=openapi.TYPE_STRING),
+                            "name": openapi.Schema(type=openapi.TYPE_STRING),
+                            "email": openapi.Schema(type=openapi.TYPE_STRING),
+                            "date_of_joining": openapi.Schema(type=openapi.TYPE_STRING, format='date'),
+                            "current_month_preview": openapi.Schema(type=openapi.TYPE_OBJECT),
+                            "salary_details": openapi.Schema(type=openapi.TYPE_ARRAY, items=openapi.Schema(type=openapi.TYPE_OBJECT)),
+                            "payslip_history": openapi.Schema(type=openapi.TYPE_ARRAY, items=openapi.Schema(type=openapi.TYPE_OBJECT)),
+                        }
+                    )
+                }
+            )
+        )}
+    )
     def get(self, request):
         employee = get_object_or_404(Employee, user=request.user)
         
@@ -52,6 +78,27 @@ class GenericConfigurationView(APIView):
     # Some configs might be public or authenticated
     permission_classes = [IsAuthenticated]
 
+    @swagger_auto_schema(
+        operation_description="Get general HR and payroll configuration settings.",
+        responses={200: openapi.Response(
+            description="Configuration key-value pairs",
+            schema=openapi.Schema(
+                type=openapi.TYPE_OBJECT,
+                properties={
+                    "error": openapi.Schema(type=openapi.TYPE_BOOLEAN),
+                    "data": openapi.Schema(
+                        type=openapi.TYPE_OBJECT,
+                        properties={
+                            "login_types": openapi.Schema(type=openapi.TYPE_OBJECT),
+                            "attendance_late_days": openapi.Schema(type=openapi.TYPE_INTEGER),
+                            "web_show_salary": openapi.Schema(type=openapi.TYPE_INTEGER),
+                            "rh_config": openapi.Schema(type=openapi.TYPE_OBJECT),
+                        }
+                    )
+                }
+            )
+        )}
+    )
     def get(self, request):
         configs = PayrollConfig.objects.all()
         config_data = {c.key: c.value for c in configs}
