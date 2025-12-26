@@ -12,9 +12,27 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
-        migrations.AddField(
-            model_name='employee',
-            name='company',
-            field=models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.CASCADE, related_name='employees', to='organizations.company'),
+        migrations.SeparateDatabaseAndState(
+            database_operations=[
+                migrations.RunSQL(
+                    sql="ALTER TABLE employees_employee ADD COLUMN IF NOT EXISTS company_id bigint unsigned NULL;",
+                    reverse_sql="ALTER TABLE employees_employee DROP COLUMN company_id;"
+                ),
+                migrations.RunSQL(
+                    sql="ALTER TABLE employees_employee ADD CONSTRAINT employees_employee_company_id_fk FOREIGN KEY (company_id) REFERENCES organizations_company(id);",
+                    reverse_sql="ALTER TABLE employees_employee DROP FOREIGN KEY employees_employee_company_id_fk;"
+                ),
+                migrations.RunSQL(
+                    sql="CREATE INDEX employees_employee_company_id_idx ON employees_employee(company_id);",
+                    reverse_sql="DROP INDEX employees_employee_company_id_idx ON employees_employee;"
+                ),
+            ],
+            state_operations=[
+                migrations.AddField(
+                    model_name='employee',
+                    name='company',
+                    field=models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.CASCADE, related_name='employees', to='organizations.company'),
+                ),
+            ]
         ),
     ]
