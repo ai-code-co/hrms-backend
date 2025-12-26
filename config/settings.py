@@ -46,6 +46,7 @@ INSTALLED_APPS = [
     'attendance.apps.AttendanceConfig',
     'payroll.apps.PayrollConfig',
     'notifications.apps.NotificationsConfig',
+    'organizations.apps.OrganizationsConfig',
     'drf_yasg',
     'django.contrib.admin',
     'django.contrib.auth',

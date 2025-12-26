@@ -2,10 +2,12 @@ from django.db import models
 from django.core.validators import RegexValidator
 from django.core.exceptions import ValidationError
 from auth_app.models import User
+from organizations.models import Company
 
 
 class Employee(models.Model):
     """Main Employee model"""
+    company = models.ForeignKey(Company, on_delete=models.CASCADE, related_name='employees', null=True, blank=True)
     
     # Employment Type Choices
     EMPLOYMENT_TYPE_CHOICES = [
