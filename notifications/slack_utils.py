@@ -7,13 +7,29 @@ from employees.models import Employee
 
 logger = logging.getLogger(__name__)
 
-class SlackNotificationService:
-    def __init__(self):
-        self.client = WebClient(token=os.environ.get('SLACK_BOT_TOKEN'))
-        self.management_channel = os.environ.get('SLACK_MANAGEMENT_CHANNEL_ID')
+from .models import SlackConfiguration
 
-    def get_management_channel_id(self):
-        return self.management_channel
+class SlackNotificationService:
+    def __init__(self, company=None):
+        self.company = company
+        self.config = None
+        self.client = None
+        self.management_channel = None
+
+        if company:
+            try:
+                self.config = SlackConfiguration.objects.get(company=company)
+                self.client = WebClient(token=self.config.bot_token)
+                self.management_channel = self.config.management_channel_id
+            except SlackConfiguration.DoesNotExist:
+                logger.error(f"SlackConfiguration not found for company: {company.name}")
+        else:
+            # Fallback to env vars for backward compatibility during transition if needed
+            # but ideally we should move away from this.
+            token = os.environ.get('SLACK_BOT_TOKEN')
+            if token:
+                self.client = WebClient(token=token)
+                self.management_channel = os.environ.get('SLACK_MANAGEMENT_CHANNEL_ID')
 
     def get_slack_id_by_email(self, email):
         """
@@ -76,14 +92,20 @@ class SlackNotificationService:
     @staticmethod
     def notify_attendance_approval(employee, date, status="Approved"):
         """ Hi @Name, Your timesheet entry for Date has been status """
-        service = SlackNotificationService()
+        if not employee.company:
+            logger.warning(f"Employee {employee.get_full_name()} has no company assigned.")
+            return False
+        service = SlackNotificationService(company=employee.company)
         message = f"Hi @{employee.get_full_name()}\n Your manual attendance  {date} is {status}."
         return service.send_message(employee, message)
 
     @staticmethod
     def notify_leave_applied(employee, leave_obj):
         """ Hi @Name !! You just had applied for X days of leave from Start to End ... """
-        service = SlackNotificationService()
+        if not employee.company:
+            logger.warning(f"Employee {employee.get_full_name()} has no company assigned.")
+            return False
+        service = SlackNotificationService(company=employee.company)
         message = (
             f"Hi {employee.first_name} !!\n"
             f" You just had applied for {leave_obj.no_of_days} days of leave from {leave_obj.from_date} to {leave_obj.to_date} .\n"
@@ -97,7 +119,10 @@ class SlackNotificationService:
     @staticmethod
     def notify_leave_status(employee, leave_obj, status_msg="Approved"):
         """ Hi @Name !! Your leave has been Approved . """
-        service = SlackNotificationService()
+        if not employee.company:
+            logger.warning(f"Employee {employee.get_full_name()} has no company assigned.")
+            return False
+        service = SlackNotificationService(company=employee.company)
         message = (
             f"Hi {employee.first_name} !!\n"
             f" Your leave has been {status_msg} .\n"
@@ -114,7 +139,10 @@ class SlackNotificationService:
     @staticmethod
     def notify_payslip_generated(employee, month_name):
         """ Hi @Name, Your salary slip is generated for month of Month . """
-        service = SlackNotificationService()
+        if not employee.company:
+            logger.warning(f"Employee {employee.get_full_name()} has no company assigned.")
+            return False
+        service = SlackNotificationService(company=employee.company)
         message = (
             f"Hi {employee.first_name}\n"
             f" Your salary slip is generated for month of {month_name} .\n"
@@ -125,7 +153,10 @@ class SlackNotificationService:
     @staticmethod
     def notify_attendance_update(employee, date, entry_time, exit_time, reason="N/A"):
         """ Hi @Name, Your timings are updated for date Date ... """
-        service = SlackNotificationService()
+        if not employee.company:
+            logger.warning(f"Employee {employee.get_full_name()} has no company assigned.")
+            return False
+        service = SlackNotificationService(company=employee.company)
         message = (
             f"Hi @{employee.get_full_name()}\n"
             f" Your timings are updated for date {date}\n"
@@ -138,7 +169,10 @@ class SlackNotificationService:
     @staticmethod
     def notify_daily_attendance(employee, prev_entry, prev_exit, today_entry):
         """ Hi @Name, Your Previous working day Entry Time: ... """
-        service = SlackNotificationService()
+        if not employee.company:
+            logger.warning(f"Employee {employee.get_full_name()} has no company assigned.")
+            return False
+        service = SlackNotificationService(company=employee.company)
         message = (
             f"Hi @{employee.get_full_name()}\n"
             f"Your Previous working day Entry Time: {prev_entry}\n"
@@ -150,7 +184,10 @@ class SlackNotificationService:
     @staticmethod
     def notify_welcome(employee):
         """ Sends a welcome message to the newly created employee. """
-        service = SlackNotificationService()
+        if not employee.company:
+            logger.warning(f"Employee {employee.get_full_name()} has no company assigned.")
+            return False
+        service = SlackNotificationService(company=employee.company)
         message = (
             f"Hi @{employee.get_full_name()} !!\n"
             f" Welcome to the team! Your HRMS account has been successfully created.\n"
@@ -166,7 +203,10 @@ class SlackNotificationService:
         Compensation Summary:
         Date # Type # Duration ## Pending = Total
         """
-        service = SlackNotificationService()
+        if not employee.company:
+            logger.warning(f"Employee {employee.get_full_name()} has no company assigned.")
+            return False
+        service = SlackNotificationService(company=employee.company)
         message = (
             f"Hi @{employee.get_full_name()}\n"
             f" You have to compensate {total_compensate} .\n"
@@ -178,7 +218,10 @@ class SlackNotificationService:
     @staticmethod
     def notify_timesheet_submitted(employee, start_date, end_date):
         """ Hi @Name, You have successfully submitted timesheet from Monday, 15-Sep-2025 to Sunday, 21-Sep-2025. """
-        service = SlackNotificationService()
+        if not employee.company:
+            logger.warning(f"Employee {employee.get_full_name()} has no company assigned.")
+            return False
+        service = SlackNotificationService(company=employee.company)
         message = (
             f"Hi @{employee.get_full_name()}\n"
             f" You have successfully submitted timesheet from {start_date} to {end_date}."
@@ -188,8 +231,11 @@ class SlackNotificationService:
     @staticmethod
     def notify_manual_attendance_request(request_obj):
         """ Sends interactive manual attendance request to management channel. """
-        service = SlackNotificationService()
         employee = request_obj.employee
+        if not employee.company:
+            logger.warning(f"Employee {employee.get_full_name()} has no company assigned.")
+            return False
+        service = SlackNotificationService(company=employee.company)
         date = request_obj.date.strftime("%d-%m-%Y")
         entry = request_obj.entry_time.strftime("%I:%M %p")
         exit = request_obj.exit_time.strftime("%I:%M %p")
@@ -241,14 +287,20 @@ class SlackNotificationService:
     @staticmethod
     def notify_manual_attendance_approved(employee, date, entry_time, exit_time):
         """ Hi @Name, Your manual attendance 12-18-2025 09:30 AM and 12-18-2025 06:30 PM is approved. """
-        service = SlackNotificationService()
+        if not employee.company:
+            logger.warning(f"Employee {employee.get_full_name()} has no company assigned.")
+            return False
+        service = SlackNotificationService(company=employee.company)
         message = f"Hi @{employee.get_full_name()}\nYour manual attendance  {date} {entry_time} and {date} {exit_time} is approved."
         return service.send_message(employee, message)
 
     @staticmethod
     def notify_late_alert(employee, late_dates, today_entry, prev_entry=None, prev_exit=None):
         """ Hi @Name, You have been late more than 4 times already on 6th, 7th... Today's Entry Time 11:05 AM . """
-        service = SlackNotificationService()
+        if not employee.company:
+            logger.warning(f"Employee {employee.get_full_name()} has no company assigned.")
+            return False
+        service = SlackNotificationService(company=employee.company)
         prev_info = ""
         if prev_entry and prev_exit:
             prev_info = f"Your Previous working day Entry Time: {prev_entry}\nYour Previous working day Exit Time: {prev_exit}\n"
@@ -264,7 +316,10 @@ class SlackNotificationService:
     @staticmethod
     def notify_working_hours_updated(employee, date, hours, reason):
         """ Hi @Name !! Your working hours is updated for date 01-Oct-2025 to 10:39 Hours. Reason - ... """
-        service = SlackNotificationService()
+        if not employee.company:
+            logger.warning(f"Employee {employee.get_full_name()} has no company assigned.")
+            return False
+        service = SlackNotificationService(company=employee.company)
         message = (
             f"Hi @{employee.get_full_name()} !!\n"
             f" Your working hours is updated for date {date} to {hours} Hours\n"
@@ -275,7 +330,10 @@ class SlackNotificationService:
     @staticmethod
     def notify_missing_attendance(employee, date=None):
         """ Hi @Name, You didn't put your Entry / Exit Time ... """
-        service = SlackNotificationService()
+        if not employee.company:
+            logger.warning(f"Employee {employee.get_full_name()} has no company assigned.")
+            return False
+        service = SlackNotificationService(company=employee.company)
         if date:
             message = (
                 f"Hi @{employee.get_full_name()}\n"
@@ -288,12 +346,15 @@ class SlackNotificationService:
         return service.send_message(employee, message)
 
     @staticmethod
-    def send_attendance_report(date_str, day_name, category, employees):
+    def send_attendance_report(date_str, day_name, category, employees, company=None):
         """
         Sends a categorized attendance report.
         Example: 2025-12-23 ( Tuesday ) Attendance ( On Time )
         """
-        service = SlackNotificationService()
+        if not company:
+            logger.warning("No company provided for attendance report.")
+            return False
+        service = SlackNotificationService(company=company)
         color = "#36a64f" # Green for On Time
         if "Late" in category:
             color = "#f2c744" # Orange/Red
@@ -332,7 +393,11 @@ class SlackNotificationService:
     @staticmethod
     def notify_management_leave_request(leave_obj):
         """ Sends interactive leave request to management channel. """
-        service = SlackNotificationService()
+        employee = leave_obj.employee
+        if not employee.company:
+            logger.warning(f"Employee {employee.get_full_name()} has no company assigned.")
+            return False
+        service = SlackNotificationService(company=employee.company)
         blocks = [
             {
                 "type": "section",
@@ -371,7 +436,11 @@ class SlackNotificationService:
     @staticmethod
     def notify_management_timesheet_request(timesheet_obj):
         """ Sends interactive timesheet request to management channel. """
-        service = SlackNotificationService()
+        employee = timesheet_obj.employee
+        if not employee.company:
+            logger.warning(f"Employee {employee.get_full_name()} has no company assigned.")
+            return False
+        service = SlackNotificationService(company=employee.company)
         blocks = [
             {
                 "type": "section",
