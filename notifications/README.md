@@ -1,70 +1,70 @@
-# Notifications Module (Slack Integration)
+# Notifications Module (Multi-Tenant Slack Integration)
 
-The Notifications module handles automated communication with employees via Slack. It integrates with various life-cycle events in the HRMS (Leaves, Attendance, Payroll) to keep employees informed in real-time.
+The Notifications module handles automated communication with employees across different companies via Slack. It uses a database-driven multi-tenant architecture to route messages correctly based on the employee's company.
 
-## Visual Flow: Slack Notification Triggers
+## Visual Flow: Multi-Tenant Routing
 
 ```mermaid
 graph TD
     A[HRMS Event] --> B{Notification Signal}
+    B --> C[Fetch Employee.company]
+    C --> D[Load SlackConfiguration for Company]
+    D --> E{Send Notification}
     
-    subgraph Leaves
-    B -- Leave Applied --> C[Slack: Application Sent]
-    B -- Leave Status Change --> D[Slack: Approved/Rejected]
+    subgraph Excellence Tech
+    E -- Token A --> F[Excellence Workspace]
     end
     
-    subgraph Payroll
-    B -- Payslip Generated --> E[Slack: Monthly Slip Ready]
+    subgraph SuccesPoint
+    E -- Token B --> G[SuccesPoint Workspace]
     end
-    
-    subgraph Attendance
-    B -- Clock In/Out --> F[Slack: Daily Summary]
-    B -- Correction Approved --> G[Slack: Timings Updated]
-    B -- Timesheet Status --> H[Slack: Timesheet Appr/Rej]
-    end
-
-    C & D & E & F & G & H --> I[Employee DM on Slack]
 ```
 
 ## Setup Instructions
 
-### 1. Slack App Configuration
-1.  Create a Slack App at [api.slack.com](https://api.slack.com).
-2.  Add **Bot Token Scopes**:
-    - `chat:write`: To send messages.
-    - `users:read`: To get user list.
-    - `users:read.email`: To lookup user IDs by email address.
-3.  Install the app to your workspace.
-4.  Add the `SLACK_BOT_TOKEN` to your `.env` file.
+### 1. Slack App Configuration (Per Company)
+For each company requiring Slack integration, perform the following in the [Slack App Dashboard](https://api.slack.com/apps):
 
-### 2. Enable Interactivity in Slack
-1.  Go to your Slack App settings at API Slack.
-2.  Click **Interactivity & Shortcuts** (sidebar).
-3.  Turn **Interactivity** ON.
-4.  Enter the **Request URL**: `https://your-domain.com/api/slack/interactions/`
-    - (For local testing, use a tool like Ngrok to expose your localhost).
-5.  Click **Save Changes**.
+1.  **Bot Token Scopes** (OAuth & Permissions):
+    - `chat:write`: To send messages.
+    - `users:read.email`: To lookup user IDs by email address.
+    - `channels:read` & `groups:read`: To identify management channels.
+2.  **Interactivity & Shortcuts**:
+    - Turn **Interactivity** ON.
+    - **Request URL**: `https://<your-domain>/slack/interactions/`
+3.  **Event Subscriptions**:
+    - Turn **Enable Events** ON.
+    - **Request URL**: `https://<your-domain>/slack/interactions/`
+    - **Subscribe to Bot Events**: `message.im`
+4.  **Install App**: Install the app to the company workspace and copy the `Bot User OAuth Token`.
+
+### 2. HRMS Admin Configuration
+After creating the Slack App, register the details in the HRMS System:
+
+1.  Connect to **Django Admin** (`/admin/`).
+2.  Create a **Company** in the `Organizations` module.
+3.  Create a **Slack Configuration** in the `Notifications` module:
+    - **Company**: Select the relevant company.
+    - **Bot Token**: Paste the `xoxb-...` token.
+    - **Management Channel ID**: Port the Slack Channel ID where approvals should be sent (e.g., `C12345ABC`).
+    - **Slack Team ID**: Enter the Team ID (fetchable via `fetch_team_ids.py` or from the Slack URL).
 
 ### 3. Employee Mapping
-The system automatically maps employees to Slack IDs using their **office email**. 
-- On the first notification attempt, the system calls `users.lookupByEmail`.
-- The retrieved `slack_user_id` is saved to the `Employee` model for future use.
+Employees must be linked to their respective **Company** in the Employee profile. The system maps Slack IDs using the **office email** stored in the database.
 
-## Technical Implementation
+## Technical Details
 
-### Signals (`notifications/signals.py`)
-This module uses Django Signals (`post_save`) to decouple notification logic from the main business logic.
-- **Leave Signal**: Triggers on `Leave` object creation and status changes.
-- **Payslip Signal**: Triggers when a `Payslip` is marked as 'published'.
-- **Attendance Signal**: Triggers on manual corrections and status approvals.
+### Multi-Tenant Service (`notifications/slack_utils.py`)
+The `SlackNotificationService` is instantiated with a `company` object:
+```python
+service = SlackNotificationService(company=employee.company)
+```
+It dynamically loads the correct token and configuration for that specific tenant.
 
-### Slack Utility (`notifications/slack_utils.py`)
-Contains the `SlackNotificationService` which encapsulates all Slack-specific API calls and message formatting logic to match the system's requested prototype.
+### Interactive Handlers (`notifications/views.py`)
+The system identifies the tenant from the `team_id` sent by Slack in the interaction payload. This allows a single endpoint (`/slack/interactions/`) to handle multiple companies/workspaces simultaneously.
 
-## Message Prototypes
-The module supports:
-- **Attendance Updates**: Status of timesheets or manual corrections.
-- **Leave Actions**: Summary of applied leaves and approval notifications.
-- **Payroll**: Notifications about monthly payslip generation.
-- **Daily Reminders**: Alerts for missing attendance entries.
-<!-- https://api.slack.com/apps/A0A59L1T3EG/event-subscriptions?success=1 -->
+## Debugging
+-   **Terminal Logs**: Look for `🔥 SLACK HIT` to verify connectivity.
+-   **Debug Log**: Check `slack_debug.log` for raw payloads and errors.
+-   **URL Fallbacks**: The system supports `/api/slack/interactions/` and `/slack/interactions/` with or without trailing slashes.

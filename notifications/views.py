@@ -67,6 +67,20 @@ class SlackInteractionsView(APIView):
     def process_event(self, payload):
         """ Handles Slack Event API (e.g. messages) """
         try:
+            from .models import SlackConfiguration
+            
+            team_id = payload.get("team_id")
+            if not team_id:
+                logger.error("No team_id found in Slack event payload.")
+                return
+            
+            try:
+                config = SlackConfiguration.objects.get(slack_team_id=team_id)
+                company = config.company
+            except SlackConfiguration.DoesNotExist:
+                logger.error(f"SlackConfiguration not found for team_id: {team_id}")
+                return
+
             event_type = payload.get("type")
             if event_type != "event_callback":
                 return
@@ -83,6 +97,7 @@ class SlackInteractionsView(APIView):
                     return
                 
                 # Check for keywords
+                # ... mapping logic ...
                 field_map = {
                     "#standup": "standup_time",
                     "#report": "report_time",
@@ -101,9 +116,11 @@ class SlackInteractionsView(APIView):
                     from attendance.models import Attendance
                     from datetime import datetime, timezone as dt_timezone
                     
-                    employee = Employee.objects.filter(slack_user_id=slack_user_id).first()
+                    # Ensure employee belongs to the company associated with this Slack team
+                    employee = Employee.objects.filter(slack_user_id=slack_user_id, company=company).first()
                     if employee:
                         event_dt = datetime.fromtimestamp(ts, tz=dt_timezone.utc)
+                        # ...
                         attendance, created = Attendance.objects.get_or_create(
                             employee=employee,
                             date=event_dt.date()
@@ -119,6 +136,20 @@ class SlackInteractionsView(APIView):
 
     def process_action(self, payload):
         try:
+            from .models import SlackConfiguration
+            
+            team_id = payload.get("team", {}).get("id")
+            if not team_id:
+                logger.error("No team_id found in Slack payload.")
+                return
+            
+            try:
+                config = SlackConfiguration.objects.get(slack_team_id=team_id)
+                company = config.company
+            except SlackConfiguration.DoesNotExist:
+                logger.error(f"SlackConfiguration not found for team_id: {team_id}")
+                return
+
             actions = payload.get("actions", [])
             if not actions:
                 return
