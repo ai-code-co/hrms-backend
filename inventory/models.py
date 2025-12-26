@@ -1,6 +1,6 @@
 from django.db import models
+from django.conf import settings
 from django.core.exceptions import ValidationError
-from auth_app.models import User
 from employees.models import Employee
 
 
@@ -45,6 +45,11 @@ class DeviceType(models.Model):
     def unassigned_devices(self):
         """Count of unassigned devices of this type"""
         return self.devices.filter(is_active=True, employee__isnull=True).count()
+    
+    @property
+    def assigned_devices(self):
+        """Count of assigned devices of this type"""
+        return self.devices.filter(is_active=True, employee__isnull=False).count()
 
 
 class Device(models.Model):
@@ -58,6 +63,14 @@ class Device(models.Model):
         ('retired', 'Retired'),
         ('lost', 'Lost'),
         ('other', 'Other'),
+    ]
+    
+    CONDITION_CHOICES = [
+        ('new', 'New'),
+        ('excellent', 'Excellent'),
+        ('good', 'Good'),
+        ('fair', 'Fair'),
+        ('poor', 'Poor'),
     ]
 
     device_type = models.ForeignKey(
@@ -73,11 +86,27 @@ class Device(models.Model):
         blank=True,
         help_text="Device serial number"
     )
+    model_name = models.CharField(
+        max_length=200,
+        blank=True,
+        help_text="Model name/number of the device"
+    )
+    brand = models.CharField(
+        max_length=100,
+        blank=True,
+        help_text="Brand/Manufacturer"
+    )
     status = models.CharField(
         max_length=20,
         choices=STATUS_CHOICES,
         default='working',
         help_text="Current status of the device"
+    )
+    condition = models.CharField(
+        max_length=20,
+        choices=CONDITION_CHOICES,
+        default='good',
+        help_text="Physical condition of the device"
     )
     employee = models.ForeignKey(
         Employee,
@@ -112,14 +141,14 @@ class Device(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
     created_by = models.ForeignKey(
-        User,
+        settings.AUTH_USER_MODEL,
         on_delete=models.SET_NULL,
         null=True,
         blank=True,
         related_name='created_devices'
     )
     updated_by = models.ForeignKey(
-        User,
+        settings.AUTH_USER_MODEL,
         on_delete=models.SET_NULL,
         null=True,
         blank=True,
@@ -135,14 +164,17 @@ class Device(models.Model):
             models.Index(fields=['employee']),
             models.Index(fields=['serial_number']),
             models.Index(fields=['is_active']),
+            models.Index(fields=['status']),
         ]
 
     def __str__(self):
         device_info = f"{self.device_type.name}"
+        if self.brand:
+            device_info += f" - {self.brand}"
+        if self.model_name:
+            device_info += f" {self.model_name}"
         if self.serial_number:
-            device_info += f" - {self.serial_number}"
-        if self.employee:
-            device_info += f" (Assigned to {self.employee.get_full_name()})"
+            device_info += f" ({self.serial_number})"
         return device_info
 
     def clean(self):
@@ -150,6 +182,19 @@ class Device(models.Model):
         if self.warranty_expiry and self.purchase_date:
             if self.warranty_expiry < self.purchase_date:
                 raise ValidationError("Warranty expiry date cannot be before purchase date.")
+    
+    @property
+    def is_under_warranty(self):
+        """Check if device is still under warranty"""
+        from django.utils import timezone
+        if not self.warranty_expiry:
+            return False
+        return self.warranty_expiry >= timezone.now().date()
+    
+    @property
+    def is_assigned(self):
+        """Check if device is assigned to someone"""
+        return self.employee is not None
 
 
 class DeviceAssignment(models.Model):
@@ -165,7 +210,7 @@ class DeviceAssignment(models.Model):
         related_name='device_assignments'
     )
     assigned_by = models.ForeignKey(
-        User,
+        settings.AUTH_USER_MODEL,
         on_delete=models.SET_NULL,
         null=True,
         related_name='device_assignments_made'
@@ -175,6 +220,26 @@ class DeviceAssignment(models.Model):
         null=True,
         blank=True,
         help_text="Date when device was returned"
+    )
+    returned_to = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='device_returns_received',
+        help_text="Admin who received the returned device"
+    )
+    condition_at_assignment = models.CharField(
+        max_length=20,
+        choices=Device.CONDITION_CHOICES,
+        blank=True,
+        help_text="Device condition when assigned"
+    )
+    condition_at_return = models.CharField(
+        max_length=20,
+        choices=Device.CONDITION_CHOICES,
+        blank=True,
+        help_text="Device condition when returned"
     )
     notes = models.TextField(
         blank=True,
@@ -188,9 +253,21 @@ class DeviceAssignment(models.Model):
         indexes = [
             models.Index(fields=['device', 'employee']),
             models.Index(fields=['assigned_date']),
+            models.Index(fields=['returned_date']),
         ]
 
     def __str__(self):
         status = "Active" if not self.returned_date else "Returned"
         return f"{self.device.device_type.name} → {self.employee.get_full_name()} ({status})"
-
+    
+    @property
+    def is_active(self):
+        """Check if this assignment is currently active"""
+        return self.returned_date is None
+    
+    @property
+    def duration_days(self):
+        """Get duration of assignment in days"""
+        from django.utils import timezone
+        end_date = self.returned_date or timezone.now()
+        return (end_date - self.assigned_date).days

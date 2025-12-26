@@ -445,13 +445,15 @@ class MonthlyAttendanceSerializer(serializers.Serializer):
             elif is_weekend:
                 day_type = "WEEKEND_OFF"
             elif leave:  # Check for leave
-                if leave.status == Leave.Status.APPROVED:
+                # Safely compare leave status
+                leave_status = getattr(leave, 'status', '')
+                if leave_status == 'Approved' or leave_status == getattr(Leave.Status, 'APPROVED', 'Approved'):
                     day_type = "LEAVE_APPROVED"
-                elif leave.status == Leave.Status.PENDING:
+                elif leave_status == 'Pending' or leave_status == getattr(Leave.Status, 'PENDING', 'Pending'):
                     day_type = "LEAVE_PENDING"
-                elif leave.status == Leave.Status.REJECTED:
+                elif leave_status == 'Rejected' or leave_status == getattr(Leave.Status, 'REJECTED', 'Rejected'):
                     day_type = "LEAVE_REJECTED"
-                elif leave.status == Leave.Status.CANCELLED:
+                elif leave_status == 'Cancelled' or leave_status == getattr(Leave.Status, 'CANCELLED', 'Cancelled'):
                     day_type = "LEAVE_CANCELLED"
                 else:
                     day_type = "WORKING_DAY"
@@ -497,8 +499,11 @@ class MonthlyAttendanceSerializer(serializers.Serializer):
             # File URL and ID
             file_url = ""
             file_id = ""
-            if attendance and attendance.tracker_screenshot:
-                file_url = attendance.tracker_screenshot.url
+            if attendance and hasattr(attendance, 'tracker_screenshot') and attendance.tracker_screenshot:
+                try:
+                    file_url = attendance.tracker_screenshot.url
+                except (AttributeError, ValueError):
+                    file_url = ""
                 file_id = str(attendance.id)
             
             # Status
@@ -556,12 +561,12 @@ class MonthlyAttendanceSerializer(serializers.Serializer):
                 "comments": comments,
                 "leave_id": leave.id if leave else None,
                 "leave_type": leave.leave_type if leave else "",
-                "leave_status": leave.get_status_display() if leave else "",
-                "leave_reason": leave.reason if leave else "",
+                "leave_status": leave.get_status_display() if leave and hasattr(leave, 'get_status_display') else (getattr(leave, 'status', '') if leave else ""),
+                "leave_reason": getattr(leave, 'reason', '') if leave else "",
                 "is_restricted_holiday": is_rh,
                 "is_partial_leave": is_partial,
                 "partial_leave_type": partial_type if partial_type else "",
-                "leave_document": leave.doc_link.url if leave and leave.doc_link else "",
+                "leave_document": leave.doc_link.url if leave and hasattr(leave, 'doc_link') and leave.doc_link else "",
             }
             
             attendance_array.append(day_record)
@@ -593,7 +598,8 @@ class MonthlyAttendanceSerializer(serializers.Serializer):
             leave, is_rh, is_partial, partial_type = leave_info
             
             # Handle leaves
-            if leave and leave.status == Leave.Status.APPROVED:
+            leave_status = getattr(leave, 'status', '') if leave else ''
+            if leave and (leave_status == 'Approved' or leave_status == getattr(Leave.Status, 'APPROVED', 'Approved')):
                 # For partial leave, count partial hours (0.5 days)
                 if is_partial and partial_type:
                     total_working_days += 0.5
@@ -718,11 +724,13 @@ class WeeklyTimesheetSubmitSerializer(serializers.Serializer):
                 ).first()
                 
                 if existing:
-                    if existing.timesheet_status in ['PENDING', 'APPROVED']:
+                    # Check timesheet status safely (only if field exists)
+                    if hasattr(existing, 'timesheet_status') and existing.timesheet_status in ['PENDING', 'APPROVED']:
+                        status_display = existing.get_timesheet_status_display() if hasattr(existing, 'get_timesheet_status_display') else existing.timesheet_status
                         raise serializers.ValidationError({
-                            'date': 'Timesheet already submitted for this date. Status: {}'.format(existing.get_timesheet_status_display())
+                            'date': 'Timesheet already submitted for this date. Status: {}'.format(status_display)
                         })
-                    # Allow resubmission if status is REJECTED
+                    # Allow resubmission if status is REJECTED or if timesheet_status field doesn't exist
         
         # WFH validation
         if is_wfh:
@@ -831,7 +839,7 @@ class WeeklyTimesheetSerializer(serializers.Serializer):
             elif is_future:
                 day_type = "WORKING_DAY"
             elif attendance:
-                day_type = attendance.day_type
+                day_type = getattr(attendance, 'day_type', 'WORKING_DAY')
             else:
                 day_type = "WORKING_DAY"
             
@@ -840,28 +848,44 @@ class WeeklyTimesheetSerializer(serializers.Serializer):
             default_total_time = getattr(settings, 'ATTENDANCE_DEFAULT_TOTAL_TIME_SECONDS', 32400)
             
             if attendance:
-                office_hours = attendance.office_working_hours or default_office_hours
-                total_time = attendance.orignal_total_time or default_total_time
+                office_hours = getattr(attendance, 'office_working_hours', None) or default_office_hours
+                total_time = getattr(attendance, 'orignal_total_time', None) or default_total_time
                 
                 # Format times
-                in_time_str = format_time_to_12hr(attendance.home_in_time) if attendance.home_in_time else format_time_to_12hr(attendance.office_in_time) if attendance.office_in_time else ""
-                out_time_str = format_time_to_12hr(attendance.home_out_time) if attendance.home_out_time else format_time_to_12hr(attendance.office_out_time) if attendance.office_out_time else ""
+                home_in_time = getattr(attendance, 'home_in_time', None)
+                office_in_time = getattr(attendance, 'office_in_time', None)
+                home_out_time = getattr(attendance, 'home_out_time', None)
+                office_out_time = getattr(attendance, 'office_out_time', None)
+                
+                in_time_str = format_time_to_12hr(home_in_time) if home_in_time else format_time_to_12hr(office_in_time) if office_in_time else ""
+                out_time_str = format_time_to_12hr(home_out_time) if home_out_time else format_time_to_12hr(office_out_time) if office_out_time else ""
                 
                 # Calculate total hours
-                total_hours = attendance.seconds_actual_worked_time // 3600 if attendance.seconds_actual_worked_time > 0 else 0
+                seconds_worked = getattr(attendance, 'seconds_actual_worked_time', 0) or 0
+                total_hours = seconds_worked // 3600 if seconds_worked > 0 else 0
                 
-                # File URL
+                # File URL - safely check for tracker_screenshot field
                 file_url = ""
                 file_id = ""
-                if attendance.tracker_screenshot:
-                    file_url = attendance.tracker_screenshot.url
+                if hasattr(attendance, 'tracker_screenshot') and attendance.tracker_screenshot:
+                    try:
+                        file_url = attendance.tracker_screenshot.url
+                    except (AttributeError, ValueError):
+                        file_url = ""
                     file_id = str(attendance.id)
                 
-                # Status
-                status = attendance.get_timesheet_status_display() if hasattr(attendance, 'timesheet_status') else ""
+                # Status - safely check for timesheet_status field
+                status = ""
+                if hasattr(attendance, 'timesheet_status') and hasattr(attendance, 'get_timesheet_status_display'):
+                    try:
+                        status = attendance.get_timesheet_status_display()
+                    except (AttributeError, ValueError):
+                        status = ""
                 
                 # Comments
-                comments = attendance.text or attendance.day_text or ""
+                text = getattr(attendance, 'text', '') or ''
+                day_text = getattr(attendance, 'day_text', '') or ''
+                comments = text or day_text or ""
             else:
                 office_hours = default_office_hours
                 total_time = default_total_time
@@ -884,12 +908,12 @@ class WeeklyTimesheetSerializer(serializers.Serializer):
                 "file": file_url,
                 "fileId": file_id,
                 "status": status,
-                "is_working_from_home": attendance.is_working_from_home if attendance else False,
+                "is_working_from_home": getattr(attendance, 'is_working_from_home', False) if attendance else False,
                 "in_time": in_time_str,
                 "out_time": out_time_str,
                 "day_type": day_type,
-                "admin_alert": attendance.admin_alert if attendance else (0 if is_future or is_holiday or is_weekend else 1),
-                "admin_alert_message": attendance.admin_alert_message if attendance else ("" if is_future or is_holiday or is_weekend else ADMIN_ALERT_MESSAGE_MISSING_TIME),
+                "admin_alert": getattr(attendance, 'admin_alert', 0) if attendance else (0 if is_future or is_holiday or is_weekend else 1),
+                "admin_alert_message": getattr(attendance, 'admin_alert_message', "") if attendance else ("" if is_future or is_holiday or is_weekend else ADMIN_ALERT_MESSAGE_MISSING_TIME),
             }
             
             attendance_array.append(day_record)

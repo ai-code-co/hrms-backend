@@ -84,7 +84,9 @@ class AttendanceViewSet(viewsets.ModelViewSet):
     
     def get_permissions(self):
         """Set permissions based on action"""
-        if self.action in ['create', 'update', 'partial_update', 'destroy']:
+        # Admin-only actions
+        admin_actions = ['create', 'update', 'partial_update', 'destroy', 'check_in', 'check_out']
+        if self.action in admin_actions:
             return [IsAuthenticated(), IsAdminUser()]
         return [IsAuthenticated()]
     
@@ -107,10 +109,10 @@ class AttendanceViewSet(viewsets.ModelViewSet):
         """Determine day_type based on date, holidays, and weekend"""
         AttendanceCalculationService.determine_day_type(attendance, today=timezone.now().date())
     
-    @action(detail=False, methods=['post'], url_path='check-in')
+    @action(detail=False, methods=['post'], url_path='check-in', permission_classes=[IsAdminUser])
     def check_in(self, request):
         """
-        Employee check-in endpoint
+        Employee check-in endpoint (Admin/HR only)
         POST /api/attendance/check-in/
         Body: {"date": "2025-12-01", "location": "OFFICE", "notes": "Optional notes"}
         """
@@ -142,6 +144,37 @@ class AttendanceViewSet(viewsets.ModelViewSet):
         check_in_str = serializer.validated_data.get('home_check_in', '') or serializer.validated_data.get('check_in', '')
         check_out_str = serializer.validated_data.get('home_check_out', '') or serializer.validated_data.get('check_out', '')
         current_time = timezone.now()
+        
+        # Validate date is not weekend, holiday, or leave day
+        # Check if weekend
+        if check_date.weekday() >= 5:  # Saturday=5, Sunday=6
+            day_name = check_date.strftime('%A')
+            return Response({
+                "error": 1,
+                "message": f"Cannot check-in on weekends. {day_name} is a weekend."
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        # Check if holiday
+        holiday = Holiday.objects.filter(date=check_date, is_active=True).first()
+        if holiday:
+            return Response({
+                "error": 1,
+                "message": f"Cannot check-in on holidays. {holiday.name} is a holiday."
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        # Check if employee has approved leave for this date
+        from leaves.models import Leave as LeaveModel
+        leave = LeaveModel.objects.filter(
+            employee=employee,
+            from_date__lte=check_date,
+            to_date__gte=check_date,
+            status=LeaveModel.Status.APPROVED
+        ).first()
+        if leave:
+            return Response({
+                "error": 1,
+                "message": f"Cannot check-in on leave days. You have an approved leave from {leave.from_date} to {leave.to_date}."
+            }, status=status.HTTP_400_BAD_REQUEST)
         
         # If working from home, set location to HOME automatically
         if is_work_from_home:
@@ -204,10 +237,10 @@ class AttendanceViewSet(viewsets.ModelViewSet):
                     }, status=status.HTTP_400_BAD_REQUEST)
             
             # Set timesheet status based on user role and entry type
-            # Manual entries from employees need approval, admin entries are auto-approved
+            # ALL work-from-home entries from employees need approval, admin entries are auto-approved
             # Regular office check-ins are auto-approved
-            if is_manual_entry:
-                # Manual entry: PENDING for employees, APPROVED for admins
+            if is_work_from_home:
+                # Work from home: PENDING for employees, APPROVED for admins
                 if user.is_staff or user.is_superuser:
                     timesheet_status = 'APPROVED'
                     timesheet_approved_by = user
@@ -217,7 +250,7 @@ class AttendanceViewSet(viewsets.ModelViewSet):
                     timesheet_approved_by = None
                     timesheet_approved_at = None
             else:
-                # Regular check-in (office or real-time): Auto-approved
+                # Regular office check-in: Auto-approved
                 timesheet_status = 'APPROVED'
                 timesheet_approved_by = user
                 timesheet_approved_at = timezone.now()
@@ -239,20 +272,24 @@ class AttendanceViewSet(viewsets.ModelViewSet):
                     existing.day_text = notes
                 existing.updated_by = user
                 
-                # Update timesheet status
-                # For manual entries, always update status
+                # Update timesheet status (only if fields exist in model)
+                # For work-from-home entries, always update status
                 # For regular check-ins, only update if status is not already set or is PENDING
-                if is_manual_entry:
-                    existing.timesheet_status = timesheet_status
-                    existing.timesheet_submitted_at = timezone.now()
-                    if timesheet_approved_by:
+                if is_work_from_home:
+                    if hasattr(existing, 'timesheet_status'):
+                        existing.timesheet_status = timesheet_status
+                    if hasattr(existing, 'timesheet_submitted_at'):
+                        existing.timesheet_submitted_at = timezone.now()
+                    if timesheet_approved_by and hasattr(existing, 'timesheet_approved_by'):
                         existing.timesheet_approved_by = timesheet_approved_by
+                    if timesheet_approved_at and hasattr(existing, 'timesheet_approved_at'):
                         existing.timesheet_approved_at = timesheet_approved_at
-                elif not existing.timesheet_status or existing.timesheet_status == 'PENDING':
+                elif hasattr(existing, 'timesheet_status') and (not existing.timesheet_status or existing.timesheet_status == 'PENDING'):
                     # For regular check-ins, auto-approve if not already set or if pending
                     existing.timesheet_status = timesheet_status
-                    if timesheet_approved_by:
+                    if timesheet_approved_by and hasattr(existing, 'timesheet_approved_by'):
                         existing.timesheet_approved_by = timesheet_approved_by
+                    if timesheet_approved_at and hasattr(existing, 'timesheet_approved_at'):
                         existing.timesheet_approved_at = timesheet_approved_at
                 
                 self._determine_day_type(existing)
@@ -271,33 +308,53 @@ class AttendanceViewSet(viewsets.ModelViewSet):
                     office_working_hours=getattr(settings, 'ATTENDANCE_DEFAULT_WORKING_HOURS', '09:00'),
                     orignal_total_time=getattr(settings, 'ATTENDANCE_DEFAULT_TOTAL_TIME_SECONDS', 32400),
                     created_by=user,
-                    updated_by=user,
-                    timesheet_status=timesheet_status,
-                    timesheet_submitted_at=timezone.now() if is_manual_entry else None,
-                    timesheet_approved_by=timesheet_approved_by if timesheet_status == 'APPROVED' else None,
-                    timesheet_approved_at=timesheet_approved_at if timesheet_status == 'APPROVED' else None
+                    updated_by=user
                 )
+                # Set timesheet fields only if they exist in the model
+                if hasattr(attendance, 'timesheet_status'):
+                    attendance.timesheet_status = timesheet_status
+                if is_work_from_home and hasattr(attendance, 'timesheet_submitted_at'):
+                    attendance.timesheet_submitted_at = timezone.now()
+                if timesheet_status == 'APPROVED':
+                    if timesheet_approved_by and hasattr(attendance, 'timesheet_approved_by'):
+                        attendance.timesheet_approved_by = timesheet_approved_by
+                    if timesheet_approved_at and hasattr(attendance, 'timesheet_approved_at'):
+                        attendance.timesheet_approved_at = timesheet_approved_at
                 self._determine_day_type(attendance)
                 attendance.save()
         
         # Format response
         from .serializers import format_time_to_12hr, format_datetime_to_iso
         
+        # Determine if this requires approval (work-from-home from non-admin)
+        # ALL work-from-home entries require approval from non-admin users
+        requires_approval = is_work_from_home and not (user.is_staff or user.is_superuser)
+        
+        # Get status display safely
+        status_display = ""
+        if hasattr(attendance, 'timesheet_status') and hasattr(attendance, 'get_timesheet_status_display'):
+            try:
+                status_display = attendance.get_timesheet_status_display()
+            except (AttributeError, ValueError):
+                status_display = getattr(attendance, 'timesheet_status', '')
+        elif requires_approval:
+            # If timesheet_status field doesn't exist but approval is required, show "Pending"
+            status_display = "Pending"
+        
         location_time = attendance.office_in_time if location == 'OFFICE' else attendance.home_in_time
         message = "Checked in successfully"
         if is_work_from_home and check_out_str:
-            message = "Attendance recorded successfully (check-in and check-out)"
+            if requires_approval:
+                message = "Attendance recorded successfully (check-in and check-out). Pending admin approval."
+            else:
+                message = "Attendance recorded successfully (check-in and check-out)"
         elif is_work_from_home:
-            message = "Checked in successfully at home"
+            if requires_approval:
+                message = "Checked in successfully at home. Pending admin approval."
+            else:
+                message = "Checked in successfully at home"
         else:
             message = f"Checked in successfully at {location.lower()}"
-        
-        # Get status display
-        status_display = attendance.get_timesheet_status_display() if hasattr(attendance, 'timesheet_status') else ""
-        
-        # Determine if this requires approval (manual entry from non-admin)
-        is_manual = is_work_from_home and (check_in_str or check_out_str)
-        requires_approval = is_manual and not (user.is_staff or user.is_superuser)
         
         return Response({
             "error": 0,
@@ -318,10 +375,10 @@ class AttendanceViewSet(viewsets.ModelViewSet):
             }
         }, status=status.HTTP_201_CREATED)
     
-    @action(detail=False, methods=['post'], url_path='check-out')
+    @action(detail=False, methods=['post'], url_path='check-out', permission_classes=[IsAdminUser])
     def check_out(self, request):
         """
-        Employee check-out endpoint
+        Employee check-out endpoint (Admin/HR only)
         POST /api/attendance/check-out/
         Body: {"date": "2025-12-01", "location": "OFFICE", "notes": "Optional notes"}
         """
@@ -763,10 +820,11 @@ class AttendanceViewSet(viewsets.ModelViewSet):
             
             # Handle resubmission (only if REJECTED)
             if existing:
-                if existing.timesheet_status in ['PENDING', 'APPROVED']:
+                if hasattr(existing, 'timesheet_status') and existing.timesheet_status in ['PENDING', 'APPROVED']:
+                    status_display = existing.get_timesheet_status_display() if hasattr(existing, 'get_timesheet_status_display') else existing.timesheet_status
                     return Response({
                         "error": 1,
-                        "message": f"Timesheet already submitted for this date. Status: {existing.get_timesheet_status_display()}"
+                        "message": f"Timesheet already submitted for this date. Status: {status_display}"
                     }, status=status.HTTP_400_BAD_REQUEST)
                 # If REJECTED, allow update/resubmission
                 attendance = existing
@@ -783,14 +841,20 @@ class AttendanceViewSet(viewsets.ModelViewSet):
             
             # Handle file upload with versioning
             if tracker_screenshot:
-                # Generate unique filename with timestamp
-                import os
-                from django.utils import timezone
-                timestamp = int(timezone.now().timestamp())
-                filename = tracker_screenshot.name
-                name, ext = os.path.splitext(filename)
-                unique_filename = f"{timestamp}_{employee.id}_{name}{ext}"
-                attendance.tracker_screenshot.save(unique_filename, tracker_screenshot, save=False)
+                if hasattr(attendance, 'tracker_screenshot'):
+                    try:
+                        # Generate unique filename with timestamp
+                        import os
+                        from django.utils import timezone
+                        timestamp = int(timezone.now().timestamp())
+                        filename = getattr(tracker_screenshot, 'name', 'screenshot.png')
+                        name, ext = os.path.splitext(filename)
+                        unique_filename = f"{timestamp}_{employee.id}_{name}{ext}"
+                        attendance.tracker_screenshot.save(unique_filename, tracker_screenshot, save=False)
+                    except (AttributeError, ValueError, Exception) as e:
+                        # If file upload fails, continue without the screenshot
+                        # Log the error but don't fail the entire request
+                        pass
             
             # Set home times
             home_in_time = None
@@ -839,32 +903,50 @@ class AttendanceViewSet(viewsets.ModelViewSet):
             attendance.text = comments
             attendance.day_text = comments
             attendance.seconds_actual_worked_time = total_time_seconds
-            attendance.timesheet_submitted_at = timezone.now()
+            
+            # Set timesheet fields only if they exist in the model
+            if hasattr(attendance, 'timesheet_submitted_at'):
+                attendance.timesheet_submitted_at = timezone.now()
             
             # Set status: auto-approve non-WFH, PENDING for WFH
-            if is_working_from_home:
-                attendance.timesheet_status = 'PENDING'
-            else:
-                attendance.timesheet_status = 'APPROVED'
-                attendance.timesheet_approved_by = user
-                attendance.timesheet_approved_at = timezone.now()
+            if hasattr(attendance, 'timesheet_status'):
+                if is_working_from_home:
+                    attendance.timesheet_status = 'PENDING'
+                else:
+                    attendance.timesheet_status = 'APPROVED'
+                    if hasattr(attendance, 'timesheet_approved_by'):
+                        attendance.timesheet_approved_by = user
+                    if hasattr(attendance, 'timesheet_approved_at'):
+                        attendance.timesheet_approved_at = timezone.now()
             
             attendance.updated_by = user
             self._determine_day_type(attendance)
             attendance.save()
         
         # Format response
-        status_display = attendance.get_timesheet_status_display()
+        status_display = ""
+        if hasattr(attendance, 'timesheet_status') and hasattr(attendance, 'get_timesheet_status_display'):
+            try:
+                status_display = attendance.get_timesheet_status_display()
+            except (AttributeError, ValueError):
+                status_display = getattr(attendance, 'timesheet_status', '')
+        elif is_working_from_home:
+            # If timesheet_status field doesn't exist but it's WFH, show "Pending"
+            status_display = "Pending"
+        
+        # Determine if approval is required
+        requires_approval = is_working_from_home and not (user.is_staff or user.is_superuser)
         
         return Response({
             "error": 0,
             "data": {
-                "message": "Timesheet submitted successfully",
+                "message": "Timesheet submitted successfully" + (". Pending admin approval." if requires_approval else ""),
                 "attendance_id": attendance.id,
                 "status": status_display,
                 "date": attendance.date.strftime(DATE_FORMAT),
                 "is_working_from_home": attendance.is_working_from_home,
-                "auto_approved": not is_working_from_home
+                "auto_approved": not is_working_from_home and hasattr(attendance, 'timesheet_status'),
+                "requires_approval": requires_approval
             }
         }, status=status.HTTP_201_CREATED)
     
@@ -903,11 +985,18 @@ class AttendanceViewSet(viewsets.ModelViewSet):
                 "message": "Invalid action. Use 'approve' or 'reject'"
             }, status=status.HTTP_400_BAD_REQUEST)
         
-        # Check if record is pending
-        if attendance.timesheet_status != 'PENDING':
+        # Check if record is pending (only if timesheet_status field exists)
+        if hasattr(attendance, 'timesheet_status'):
+            if attendance.timesheet_status != 'PENDING':
+                status_display = attendance.get_timesheet_status_display() if hasattr(attendance, 'get_timesheet_status_display') else attendance.timesheet_status
+                return Response({
+                    "error": 1,
+                    "message": f"Can only approve/reject PENDING timesheets. Current status: {status_display}"
+                }, status=status.HTTP_400_BAD_REQUEST)
+        else:
             return Response({
                 "error": 1,
-                "message": f"Can only approve/reject PENDING timesheets. Current status: {attendance.get_timesheet_status_display()}"
+                "message": "Timesheet status feature is not available in this model"
             }, status=status.HTTP_400_BAD_REQUEST)
         
         admin_notes = request.data.get('admin_notes', '').strip()
@@ -919,22 +1008,39 @@ class AttendanceViewSet(viewsets.ModelViewSet):
                 "message": "Admin notes are required when rejecting a timesheet"
             }, status=status.HTTP_400_BAD_REQUEST)
         
-        # Update attendance record
-        attendance.timesheet_status = 'APPROVED' if action == 'approve' else 'REJECTED'
-        attendance.timesheet_approved_by = user
-        attendance.timesheet_approved_at = timezone.now()
-        attendance.timesheet_admin_notes = admin_notes
+        # Update attendance record (only if timesheet fields exist)
+        if hasattr(attendance, 'timesheet_status'):
+            attendance.timesheet_status = 'APPROVED' if action == 'approve' else 'REJECTED'
+        if hasattr(attendance, 'timesheet_approved_by'):
+            attendance.timesheet_approved_by = user
+        if hasattr(attendance, 'timesheet_approved_at'):
+            attendance.timesheet_approved_at = timezone.now()
+        if hasattr(attendance, 'timesheet_admin_notes'):
+            attendance.timesheet_admin_notes = admin_notes
         attendance.updated_by = user
         attendance.save()
+        
+        # Get status display safely
+        status_display = ""
+        if hasattr(attendance, 'get_timesheet_status_display'):
+            try:
+                status_display = attendance.get_timesheet_status_display()
+            except (AttributeError, ValueError):
+                status_display = getattr(attendance, 'timesheet_status', '')
+        
+        # Get approved_at safely
+        approved_at = None
+        if hasattr(attendance, 'timesheet_approved_at'):
+            approved_at = format_datetime_to_iso(attendance.timesheet_approved_at)
         
         return Response({
             "error": 0,
             "data": {
                 "message": f"Timesheet {action}d successfully",
                 "attendance_id": attendance.id,
-                "status": attendance.get_timesheet_status_display(),
+                "status": status_display,
                 "approved_by": user.email,
-                "approved_at": format_datetime_to_iso(attendance.timesheet_approved_at),
+                "approved_at": approved_at,
                 "admin_notes": admin_notes if action == 'reject' else None
             }
         }, status=status.HTTP_200_OK)
