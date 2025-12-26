@@ -195,6 +195,10 @@ DATABASES = {
         'PASSWORD': os.getenv("DB_PASSWORD"),
         'HOST': os.getenv("DB_HOST", "localhost"),
         'PORT': os.getenv("DB_PORT", "3306"),
+        'OPTIONS': {
+            'charset': 'utf8mb4',
+            'init_command': "SET sql_mode='STRICT_TRANS_TABLES'",
+        },
     }
 }
 
@@ -212,13 +216,16 @@ if 'OPTIONS' in DATABASES['default'] and 'ssl-mode' in DATABASES['default']['OPT
 db_host = DATABASES['default'].get('HOST', '')
 if os.environ.get('RENDER') or (db_host and 'tidbcloud.com' in db_host):
     if 'OPTIONS' not in DATABASES['default']:
-        DATABASES['default']['OPTIONS'] = {}
+        DATABASES['default']['OPTIONS'] = {
+            'charset': 'utf8mb4',
+            'init_command': "SET sql_mode='STRICT_TRANS_TABLES'",
+        }
     
     # Remove 'ssl-mode' (dash) if parsing put it there
     if 'ssl-mode' in DATABASES['default']['OPTIONS']:
         del DATABASES['default']['OPTIONS']['ssl-mode']
     
-    # Force SSL
+    # Force SSL (preserve existing charset and init_command)
     DATABASES['default']['OPTIONS']['ssl_mode'] = 'REQUIRED'
     DATABASES['default']['OPTIONS']['ssl'] = {} # Often needed to trigger SSL handshake
 

@@ -3,7 +3,7 @@ from rest_framework.routers import DefaultRouter
 from .views import HolidayViewSet
 
 router = DefaultRouter()
-router.register(r'holidays', HolidayViewSet, basename='holiday')
+router.register(r'', HolidayViewSet, basename='holiday')
 
 urlpatterns = [
     path('', include(router.urls)),
