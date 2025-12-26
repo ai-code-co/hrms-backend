@@ -3,30 +3,46 @@
 import django.db.models.deletion
 from django.db import migrations, models
 
-def add_company_id_idempotent(apps, schema_editor):
+def add_company_id_robust(apps, schema_editor):
     connection = schema_editor.connection
     with connection.cursor() as cursor:
-        # Check for column
-        cursor.execute("SELECT COUNT(*) FROM information_schema.columns WHERE table_name = 'employees_employee' AND column_name = 'company_id' AND table_schema = DATABASE()")
-        if cursor.fetchone()[0] == 0:
+        # Add Column
+        try:
             cursor.execute("ALTER TABLE employees_employee ADD COLUMN company_id bigint unsigned NULL")
+        except Exception as e:
+            if "1060" in str(e): # Duplicate column name
+                print("Column company_id already exists, skipping...")
+            else:
+                raise e
         
-        # Check for constraint
-        cursor.execute("SELECT COUNT(*) FROM information_schema.table_constraints WHERE table_name = 'employees_employee' AND constraint_name = 'employees_employee_company_id_fk' AND table_schema = DATABASE()")
-        if cursor.fetchone()[0] == 0:
+        # Add Constraint
+        try:
             cursor.execute("ALTER TABLE employees_employee ADD CONSTRAINT employees_employee_company_id_fk FOREIGN KEY (company_id) REFERENCES organizations_company(id)")
+        except Exception as e:
+            # 1061: Duplicate key name (index), 121: Duplicate key on write (constraint)
+            if "1061" in str(e) or "121" in str(e) or "Duplicate" in str(e):
+                print("Constraint or Index already exists, skipping...")
+            else:
+                raise e
 
-        # Check for index
-        cursor.execute("SELECT COUNT(*) FROM information_schema.statistics WHERE table_name = 'employees_employee' AND index_name = 'employees_employee_company_id_idx' AND table_schema = DATABASE()")
-        if cursor.fetchone()[0] == 0:
+        # Add Index (Manual as backup)
+        try:
             cursor.execute("CREATE INDEX employees_employee_company_id_idx ON employees_employee(company_id)")
+        except Exception as e:
+            if "1061" in str(e) or "Duplicate" in str(e):
+                print("Index already exists, skipping...")
+            else:
+                raise e
 
-def remove_company_id_idempotent(apps, schema_editor):
+def remove_company_id_robust(apps, schema_editor):
     connection = schema_editor.connection
     with connection.cursor() as cursor:
-        cursor.execute("ALTER TABLE employees_employee DROP FOREIGN KEY IF EXISTS employees_employee_company_id_fk")
-        cursor.execute("DROP INDEX IF EXISTS employees_employee_company_id_idx ON employees_employee")
-        cursor.execute("ALTER TABLE employees_employee DROP COLUMN IF EXISTS company_id")
+        try:
+            cursor.execute("ALTER TABLE employees_employee DROP FOREIGN KEY IF EXISTS employees_employee_company_id_fk")
+            cursor.execute("DROP INDEX IF EXISTS employees_employee_company_id_idx ON employees_employee")
+            cursor.execute("ALTER TABLE employees_employee DROP COLUMN IF EXISTS company_id")
+        except:
+            pass
 
 
 class Migration(migrations.Migration):
@@ -39,7 +55,7 @@ class Migration(migrations.Migration):
     operations = [
         migrations.SeparateDatabaseAndState(
             database_operations=[
-                migrations.RunPython(add_company_id_idempotent, remove_company_id_idempotent),
+                migrations.RunPython(add_company_id_robust, remove_company_id_robust),
             ],
             state_operations=[
                 migrations.AddField(

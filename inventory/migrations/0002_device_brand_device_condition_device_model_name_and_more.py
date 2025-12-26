@@ -2,54 +2,47 @@ import django.db.models.deletion
 from django.conf import settings
 from django.db import migrations, models
 
-def add_inventory_fields_idempotent(apps, schema_editor):
+def add_inventory_fields_robust(apps, schema_editor):
     connection = schema_editor.connection
     with connection.cursor() as cursor:
-        # device.brand
-        cursor.execute("SELECT COUNT(*) FROM information_schema.columns WHERE table_name = 'inventory_device' AND column_name = 'brand' AND table_schema = DATABASE()")
-        if cursor.fetchone()[0] == 0:
-            cursor.execute("ALTER TABLE inventory_device ADD COLUMN brand varchar(100) NOT NULL DEFAULT ''")
+        fields = [
+            ("inventory_device", "brand", "varchar(100) NOT NULL DEFAULT ''"),
+            ("inventory_device", "condition", "varchar(20) NOT NULL DEFAULT 'good'"),
+            ("inventory_device", "model_name", "varchar(200) NOT NULL DEFAULT ''"),
+            ("inventory_deviceassignment", "condition_at_assignment", "varchar(20) NOT NULL DEFAULT ''"),
+            ("inventory_deviceassignment", "condition_at_return", "varchar(20) NOT NULL DEFAULT ''"),
+            ("inventory_deviceassignment", "returned_to_id", "bigint unsigned NULL"),
+        ]
         
-        # device.condition
-        cursor.execute("SELECT COUNT(*) FROM information_schema.columns WHERE table_name = 'inventory_device' AND column_name = 'condition' AND table_schema = DATABASE()")
-        if cursor.fetchone()[0] == 0:
-            cursor.execute("ALTER TABLE inventory_device ADD COLUMN `condition` varchar(20) NOT NULL DEFAULT 'good'")
-        
-        # device.model_name
-        cursor.execute("SELECT COUNT(*) FROM information_schema.columns WHERE table_name = 'inventory_device' AND column_name = 'model_name' AND table_schema = DATABASE()")
-        if cursor.fetchone()[0] == 0:
-            cursor.execute("ALTER TABLE inventory_device ADD COLUMN model_name varchar(200) NOT NULL DEFAULT ''")
+        for table, col, defn in fields:
+            try:
+                cursor.execute(f"ALTER TABLE {table} ADD COLUMN {col} {defn}")
+            except Exception as e:
+                if "1060" in str(e): pass
+                else: raise e
 
-        # deviceassignment.condition_at_assignment
-        cursor.execute("SELECT COUNT(*) FROM information_schema.columns WHERE table_name = 'inventory_deviceassignment' AND column_name = 'condition_at_assignment' AND table_schema = DATABASE()")
-        if cursor.fetchone()[0] == 0:
-            cursor.execute("ALTER TABLE inventory_deviceassignment ADD COLUMN condition_at_assignment varchar(20) NOT NULL DEFAULT ''")
-
-        # deviceassignment.condition_at_return
-        cursor.execute("SELECT COUNT(*) FROM information_schema.columns WHERE table_name = 'inventory_deviceassignment' AND column_name = 'condition_at_return' AND table_schema = DATABASE()")
-        if cursor.fetchone()[0] == 0:
-            cursor.execute("ALTER TABLE inventory_deviceassignment ADD COLUMN condition_at_return varchar(20) NOT NULL DEFAULT ''")
-
-        # deviceassignment.returned_to_id
-        cursor.execute("SELECT COUNT(*) FROM information_schema.columns WHERE table_name = 'inventory_deviceassignment' AND column_name = 'returned_to_id' AND table_schema = DATABASE()")
-        if cursor.fetchone()[0] == 0:
-            cursor.execute("ALTER TABLE inventory_deviceassignment ADD COLUMN returned_to_id bigint unsigned NULL")
-        
-        cursor.execute("SELECT COUNT(*) FROM information_schema.table_constraints WHERE table_name = 'inventory_deviceassignment' AND constraint_name = 'inventory_deviceassignment_returned_to_id_fk' AND table_schema = DATABASE()")
-        if cursor.fetchone()[0] == 0:
+        # Constraint
+        try:
             cursor.execute("ALTER TABLE inventory_deviceassignment ADD CONSTRAINT inventory_deviceassignment_returned_to_id_fk FOREIGN KEY (returned_to_id) REFERENCES auth_app_user(id)")
+        except Exception as e:
+            if "Duplicate" in str(e) or "121" in str(e) or "1061" in str(e): pass
+            else: raise e
 
         # Indexes
-        cursor.execute("SELECT COUNT(*) FROM information_schema.statistics WHERE table_name = 'inventory_device' AND index_name = 'inventory_d_status_458222_idx' AND table_schema = DATABASE()")
-        if cursor.fetchone()[0] == 0:
+        try:
             cursor.execute("CREATE INDEX inventory_d_status_458222_idx ON inventory_device(status)")
+        except Exception as e:
+            if "Duplicate" in str(e) or "1061" in str(e): pass
+            else: raise e
 
-        cursor.execute("SELECT COUNT(*) FROM information_schema.statistics WHERE table_name = 'inventory_deviceassignment' AND index_name = 'inventory_d_returne_eb4ff9_idx' AND table_schema = DATABASE()")
-        if cursor.fetchone()[0] == 0:
+        try:
             cursor.execute("CREATE INDEX inventory_d_returne_eb4ff9_idx ON inventory_deviceassignment(returned_date)")
+        except Exception as e:
+            if "Duplicate" in str(e) or "1061" in str(e): pass
+            else: raise e
 
-def remove_inventory_fields_idempotent(apps, schema_editor):
-    pass # No-op for safety in this debug session
+def remove_inventory_fields_robust(apps, schema_editor):
+    pass
 
 class Migration(migrations.Migration):
 
@@ -62,7 +55,7 @@ class Migration(migrations.Migration):
     operations = [
         migrations.SeparateDatabaseAndState(
             database_operations=[
-                migrations.RunPython(add_inventory_fields_idempotent, remove_inventory_fields_idempotent),
+                migrations.RunPython(add_inventory_fields_robust, remove_inventory_fields_robust),
             ],
             state_operations=[
                 migrations.AddField(

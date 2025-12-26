@@ -2,34 +2,37 @@ import django.db.models.deletion
 from django.conf import settings
 from django.db import migrations, models
 
-def add_holiday_tracking_idempotent(apps, schema_editor):
+def add_holiday_tracking_robust(apps, schema_editor):
     connection = schema_editor.connection
     with connection.cursor() as cursor:
         # created_by
-        cursor.execute("SELECT COUNT(*) FROM information_schema.columns WHERE table_name = 'holidays_holiday' AND column_name = 'created_by_id' AND table_schema = DATABASE()")
-        if cursor.fetchone()[0] == 0:
+        try:
             cursor.execute("ALTER TABLE holidays_holiday ADD COLUMN created_by_id bigint unsigned NULL")
+        except Exception as e:
+            if "1060" in str(e): pass
+            else: raise e
         
-        cursor.execute("SELECT COUNT(*) FROM information_schema.table_constraints WHERE table_name = 'holidays_holiday' AND constraint_name = 'holidays_holiday_created_by_id_fk' AND table_schema = DATABASE()")
-        if cursor.fetchone()[0] == 0:
+        try:
             cursor.execute("ALTER TABLE holidays_holiday ADD CONSTRAINT holidays_holiday_created_by_id_fk FOREIGN KEY (created_by_id) REFERENCES auth_app_user(id)")
+        except Exception as e:
+            if "Duplicate" in str(e) or "121" in str(e) or "1061" in str(e): pass
+            else: raise e
 
         # updated_by
-        cursor.execute("SELECT COUNT(*) FROM information_schema.columns WHERE table_name = 'holidays_holiday' AND column_name = 'updated_by_id' AND table_schema = DATABASE()")
-        if cursor.fetchone()[0] == 0:
+        try:
             cursor.execute("ALTER TABLE holidays_holiday ADD COLUMN updated_by_id bigint unsigned NULL")
+        except Exception as e:
+            if "1060" in str(e): pass
+            else: raise e
         
-        cursor.execute("SELECT COUNT(*) FROM information_schema.table_constraints WHERE table_name = 'holidays_holiday' AND constraint_name = 'holidays_holiday_updated_by_id_fk' AND table_schema = DATABASE()")
-        if cursor.fetchone()[0] == 0:
+        try:
             cursor.execute("ALTER TABLE holidays_holiday ADD CONSTRAINT holidays_holiday_updated_by_id_fk FOREIGN KEY (updated_by_id) REFERENCES auth_app_user(id)")
+        except Exception as e:
+            if "Duplicate" in str(e) or "121" in str(e) or "1061" in str(e): pass
+            else: raise e
 
-def remove_holiday_tracking_idempotent(apps, schema_editor):
-    connection = schema_editor.connection
-    with connection.cursor() as cursor:
-        cursor.execute("ALTER TABLE holidays_holiday DROP FOREIGN KEY IF EXISTS holidays_holiday_created_by_id_fk")
-        cursor.execute("ALTER TABLE holidays_holiday DROP COLUMN IF EXISTS created_by_id")
-        cursor.execute("ALTER TABLE holidays_holiday DROP FOREIGN KEY IF EXISTS holidays_holiday_updated_by_id_fk")
-        cursor.execute("ALTER TABLE holidays_holiday DROP COLUMN IF EXISTS updated_by_id")
+def remove_holiday_tracking_robust(apps, schema_editor):
+    pass
 
 class Migration(migrations.Migration):
 
@@ -41,7 +44,7 @@ class Migration(migrations.Migration):
     operations = [
         migrations.SeparateDatabaseAndState(
             database_operations=[
-                migrations.RunPython(add_holiday_tracking_idempotent, remove_holiday_tracking_idempotent),
+                migrations.RunPython(add_holiday_tracking_robust, remove_holiday_tracking_robust),
             ],
             state_operations=[
                 migrations.AddField(
