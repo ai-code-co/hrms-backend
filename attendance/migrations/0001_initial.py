@@ -10,6 +10,7 @@ class Migration(migrations.Migration):
     initial = True
 
     dependencies = [
+        ('employees', '0001_initial'),
         migrations.swappable_dependency(settings.AUTH_USER_MODEL),
     ]
 
@@ -26,6 +27,7 @@ class Migration(migrations.Migration):
                 ('status', models.CharField(choices=[('pending', 'Pending'), ('approved', 'Approved'), ('rejected', 'Rejected')], default='pending', max_length=20)),
                 ('created_at', models.DateTimeField(auto_now_add=True)),
                 ('updated_at', models.DateTimeField(auto_now=True)),
+                ('employee', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='manual_requests', to='employees.employee')),
             ],
         ),
         migrations.CreateModel(
@@ -38,6 +40,7 @@ class Migration(migrations.Migration):
                 ('status', models.CharField(choices=[('pending', 'Pending'), ('approved', 'Approved'), ('rejected', 'Rejected')], default='pending', max_length=20)),
                 ('created_at', models.DateTimeField(auto_now_add=True)),
                 ('updated_at', models.DateTimeField(auto_now=True)),
+                ('employee', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='timesheets', to='employees.employee')),
             ],
         ),
         migrations.CreateModel(
@@ -74,11 +77,21 @@ class Migration(migrations.Migration):
                 ('created_at', models.DateTimeField(auto_now_add=True)),
                 ('updated_at', models.DateTimeField(auto_now=True)),
                 ('created_by', models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.SET_NULL, related_name='created_attendances', to=settings.AUTH_USER_MODEL)),
+                ('updated_by', models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.SET_NULL, related_name='updated_attendances', to=settings.AUTH_USER_MODEL)),
+                ('employee', models.ForeignKey(help_text='Employee for this attendance record', on_delete=django.db.models.deletion.CASCADE, related_name='attendances', to='employees.employee')),
             ],
             options={
                 'verbose_name': 'Attendance',
                 'verbose_name_plural': 'Attendances',
                 'ordering': ['-date', 'employee'],
+                'indexes': [
+                    models.Index(fields=['employee', 'date'], name='attendance__employe_08d913_idx'),
+                    models.Index(fields=['date'], name='attendance__date_61f2e1_idx'),
+                    models.Index(fields=['day_type'], name='attendance__day_typ_d78ccf_idx'),
+                ],
+                'constraints': [
+                    models.UniqueConstraint(fields=('employee', 'date'), name='unique_employee_date_attendance'),
+                ],
             },
         ),
     ]
