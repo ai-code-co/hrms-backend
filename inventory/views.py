@@ -1,9 +1,10 @@
 from rest_framework import viewsets, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
-from rest_framework.permissions import IsAuthenticated, IsAdminUser
+from rest_framework.permissions import IsAuthenticated
 from rest_framework.filters import SearchFilter, OrderingFilter
 from django.utils import timezone
+from django.db.models import Count, Q
 
 # Optional django-filter import
 try:
@@ -23,17 +24,21 @@ from .serializers import (
     DeviceAssignSerializer,
     DeviceUnassignSerializer
 )
+from .permissions import (
+    IsAdminManagerOrHR,
+    CanViewAllDevices,
+    CanManageDevices,
+    CanAssignDevices
+)
 
 
 class DeviceTypeViewSet(viewsets.ModelViewSet):
     """
     ViewSet for Device Type management
     
-    list: Get all device types with statistics
-    retrieve: Get single device type details
-    create: Create new device type (Admin/HR only)
-    update: Update device type (Admin/HR only)
-    destroy: Delete device type (Admin only)
+    Permissions:
+    - List/Retrieve: All authenticated users (for dropdowns)
+    - Create/Update/Delete: Admin, Manager, HR only
     """
     queryset = DeviceType.objects.all()
     permission_classes = [IsAuthenticated]
@@ -54,7 +59,6 @@ class DeviceTypeViewSet(viewsets.ModelViewSet):
     def get_queryset(self):
         """Filter queryset based on user permissions"""
         queryset = super().get_queryset()
-        # Show only active device types for non-admin users
         if not self.request.user.is_staff:
             queryset = queryset.filter(is_active=True)
         return queryset
@@ -62,30 +66,55 @@ class DeviceTypeViewSet(viewsets.ModelViewSet):
     def get_permissions(self):
         """Set permissions based on action"""
         if self.action in ['create', 'update', 'partial_update', 'destroy']:
-            return [IsAuthenticated(), IsAdminUser()]
+            return [IsAuthenticated(), IsAdminManagerOrHR()]
+        # Everyone can view device types (for dropdowns)
         return [IsAuthenticated()]
+
+    def perform_destroy(self, instance):
+        """Soft delete device type"""
+        instance.is_active = False
+        instance.save()
 
     @action(detail=True, methods=['get'])
     def devices(self, request, pk=None):
-        """Get all devices of this device type"""
+        """
+        Get all devices of this device type
+        Only Admin/Manager/HR can access
+        """
         device_type = self.get_object()
         devices = Device.objects.filter(
             device_type=device_type,
             is_active=True
-        )
+        ).select_related('employee')
         serializer = DeviceListSerializer(devices, many=True)
-        return Response(serializer.data)
+        return Response({
+            "error": 0,
+            "data": serializer.data
+        })
 
     @action(detail=True, methods=['get'])
     def stats(self, request, pk=None):
         """Get statistics for this device type"""
         device_type = self.get_object()
         return Response({
-            'id': device_type.id,
-            'name': device_type.name,
-            'total': device_type.total_devices,
-            'working': device_type.working_devices,
-            'unassigned': device_type.unassigned_devices,
+            "error": 0,
+            "data": {
+                'id': device_type.id,
+                'name': device_type.name,
+                'total': device_type.total_devices,
+                'working': device_type.working_devices,
+                'assigned': device_type.assigned_devices,
+                'unassigned': device_type.unassigned_devices,
+            }
+        })
+    
+    @action(detail=False, methods=['get'])
+    def dropdown(self, request):
+        """Get device types for dropdown (id, name only)"""
+        device_types = self.get_queryset().filter(is_active=True).values('id', 'name')
+        return Response({
+            "error": 0,
+            "data": list(device_types)
         })
 
 
@@ -93,11 +122,11 @@ class DeviceViewSet(viewsets.ModelViewSet):
     """
     ViewSet for Device management
     
-    list: Get all devices with filters
-    retrieve: Get single device details
-    create: Create new device (Admin/HR only)
-    update: Update device (Admin/HR only)
-    destroy: Soft delete device (Admin only)
+    Permissions:
+    - List/Retrieve all devices: Admin, Manager, HR only
+    - Create/Update/Delete: Admin, Manager, HR only
+    - Assign/Unassign: Admin, Manager, HR only
+    - My Devices/My History: All authenticated employees (own devices only)
     """
     queryset = Device.objects.all()
     permission_classes = [IsAuthenticated]
@@ -105,10 +134,11 @@ class DeviceViewSet(viewsets.ModelViewSet):
     if HAS_DJANGO_FILTER:
         filter_backends.insert(0, DjangoFilterBackend)
     filterset_fields = [
-        'device_type', 'status', 'is_active', 'employee'
+        'device_type', 'status', 'condition', 'is_active', 'employee'
     ] if HAS_DJANGO_FILTER else []
     search_fields = [
-        'serial_number', 'device_type__name', 'notes',
+        'serial_number', 'model_name', 'brand',
+        'device_type__name', 'notes',
         'employee__first_name', 'employee__last_name', 'employee__employee_id'
     ]
     ordering_fields = [
@@ -127,16 +157,59 @@ class DeviceViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         """Filter queryset based on user permissions"""
-        queryset = super().get_queryset()
+        queryset = super().get_queryset().select_related(
+            'device_type', 'employee', 'created_by', 'updated_by'
+        )
+        
         # Show only active devices for non-admin users
         if not self.request.user.is_staff:
             queryset = queryset.filter(is_active=True)
+        
+        # Additional filters from query params
+        status_filter = self.request.query_params.get('status')
+        if status_filter:
+            queryset = queryset.filter(status=status_filter)
+        
+        assigned = self.request.query_params.get('assigned')
+        if assigned:
+            if assigned.lower() == 'true':
+                queryset = queryset.filter(employee__isnull=False)
+            elif assigned.lower() == 'false':
+                queryset = queryset.filter(employee__isnull=True)
+        
         return queryset
 
     def get_permissions(self):
-        """Set permissions based on action"""
-        if self.action in ['create', 'update', 'partial_update', 'destroy', 'assign', 'unassign']:
-            return [IsAuthenticated(), IsAdminUser()]
+        """
+        Set permissions based on action
+        
+        - CRUD operations: Admin/Manager/HR only
+        - Assign/Unassign: Admin/Manager/HR only
+        - List/Retrieve all: Admin/Manager/HR only
+        - My devices/history: All authenticated (filtered to own)
+        """
+        # CRUD operations - Admin/Manager/HR only
+        if self.action in ['create', 'update', 'partial_update', 'destroy']:
+            return [IsAuthenticated(), CanManageDevices()]
+        
+        # Assign/Unassign - Admin/Manager/HR only
+        if self.action in ['assign', 'unassign']:
+            return [IsAuthenticated(), CanAssignDevices()]
+        
+        # List/Retrieve all devices - Admin/Manager/HR only
+        if self.action in ['list', 'retrieve']:
+            return [IsAuthenticated(), CanViewAllDevices()]
+        
+        # Other admin actions - Admin/Manager/HR only
+        if self.action in ['assignment_history', 'unassigned_devices', 'warranty_expiring']:
+            return [IsAuthenticated(), IsAdminManagerOrHR()]
+        
+        # My devices & My history - All authenticated employees
+        # (These endpoints filter to own devices, so no special permission needed)
+        if self.action in ['my_devices', 'my_assignment_history']:
+            return [IsAuthenticated()]
+        
+        # Default - just authenticated
         return [IsAuthenticated()]
 
     def perform_create(self, serializer):
@@ -156,55 +229,155 @@ class DeviceViewSet(viewsets.ModelViewSet):
         instance.updated_by = self.request.user
         instance.save()
 
+    # ═══════════════════════════════════════════════════════════
+    # EMPLOYEE SELF-SERVICE ENDPOINTS (All authenticated users)
+    # ═══════════════════════════════════════════════════════════
+
+    @action(detail=False, methods=['get'], url_path='my-devices')
+    def my_devices(self, request):
+        """
+        Get devices assigned to the logged-in employee
+        GET /api/inventory/devices/my-devices/
+        
+        Permission: All authenticated employees
+        Returns: Only devices assigned to the requesting user
+        """
+        user = request.user
+        
+        # Check if user has employee profile
+        if not hasattr(user, 'employee'):
+            return Response({
+                "error": 1,
+                "message": "User must have an employee profile"
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        devices = Device.objects.filter(
+            employee=user.employee,
+            is_active=True
+        ).select_related('device_type')
+        
+        serializer = DeviceListSerializer(devices, many=True)
+        return Response({
+            "error": 0,
+            "data": {
+                "count": devices.count(),
+                "devices": serializer.data
+            }
+        })
+
+    @action(detail=False, methods=['get'], url_path='my-history')
+    def my_assignment_history(self, request):
+        """
+        Get device assignment history for logged-in employee
+        GET /api/inventory/devices/my-history/
+        
+        Permission: All authenticated employees
+        Returns: Only assignment history for the requesting user
+        """
+        user = request.user
+        
+        if not hasattr(user, 'employee'):
+            return Response({
+                "error": 1,
+                "message": "User must have an employee profile"
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        assignments = DeviceAssignment.objects.filter(
+            employee=user.employee
+        ).select_related(
+            'device', 'device__device_type', 'assigned_by'
+        ).order_by('-assigned_date')
+        
+        serializer = DeviceAssignmentSerializer(assignments, many=True)
+        return Response({
+            "error": 0,
+            "data": serializer.data
+        })
+
+    # ═══════════════════════════════════════════════════════════
+    # ADMIN/MANAGER/HR ONLY ENDPOINTS
+    # ═══════════════════════════════════════════════════════════
+
     @action(detail=True, methods=['post'])
     def assign(self, request, pk=None):
-        """Assign device to an employee (Admin/HR only)"""
+        """
+        Assign device to an employee
+        POST /api/inventory/devices/{id}/assign/
+        Body: {"employee": 1, "notes": "...", "condition": "good"}
+        
+        Permission: Admin, Manager, HR only
+        """
         device = self.get_object()
         
         if not device.is_active:
-            return Response(
-                {'detail': 'Cannot assign inactive device.'},
-                status=status.HTTP_400_BAD_REQUEST
-            )
+            return Response({
+                "error": 1,
+                "message": "Cannot assign inactive device."
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        if device.employee:
+            return Response({
+                "error": 1,
+                "message": f"Device is already assigned to {device.employee.get_full_name()}. Please unassign first."
+            }, status=status.HTTP_400_BAD_REQUEST)
 
         serializer = DeviceAssignSerializer(data=request.data)
         if serializer.is_valid():
             employee = serializer.validated_data['employee']
             notes = serializer.validated_data.get('notes', '')
+            condition = serializer.validated_data.get('condition', device.condition)
 
             # Create assignment record
             assignment = DeviceAssignment.objects.create(
                 device=device,
                 employee=employee,
                 assigned_by=request.user,
+                condition_at_assignment=condition,
                 notes=notes
             )
 
             # Update device
             device.employee = employee
+            device.condition = condition
             device.updated_by = request.user
             device.save()
 
-            return Response(
-                DeviceAssignmentSerializer(assignment).data,
-                status=status.HTTP_201_CREATED
-            )
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+            return Response({
+                "error": 0,
+                "data": {
+                    "message": f"Device assigned to {employee.get_full_name()} successfully",
+                    "assignment": DeviceAssignmentSerializer(assignment).data
+                }
+            }, status=status.HTTP_201_CREATED)
+        
+        return Response({
+            "error": 1,
+            "message": "Validation failed",
+            "errors": serializer.errors
+        }, status=status.HTTP_400_BAD_REQUEST)
 
     @action(detail=True, methods=['post'])
     def unassign(self, request, pk=None):
-        """Unassign device from employee (Admin/HR only)"""
+        """
+        Unassign device from employee
+        POST /api/inventory/devices/{id}/unassign/
+        Body: {"notes": "...", "condition": "good"}
+        
+        Permission: Admin, Manager, HR only
+        """
         device = self.get_object()
 
         if not device.employee:
-            return Response(
-                {'detail': 'Device is not assigned to any employee.'},
-                status=status.HTTP_400_BAD_REQUEST
-            )
+            return Response({
+                "error": 1,
+                "message": "Device is not assigned to any employee."
+            }, status=status.HTTP_400_BAD_REQUEST)
 
         serializer = DeviceUnassignSerializer(data=request.data)
         if serializer.is_valid():
             notes = serializer.validated_data.get('notes', '')
+            condition = serializer.validated_data.get('condition', device.condition)
+            previous_employee = device.employee
 
             # Update the most recent active assignment
             assignment = DeviceAssignment.objects.filter(
@@ -215,49 +388,127 @@ class DeviceViewSet(viewsets.ModelViewSet):
 
             if assignment:
                 assignment.returned_date = timezone.now()
+                assignment.returned_to = request.user
+                assignment.condition_at_return = condition
                 if notes:
-                    assignment.notes = f"{assignment.notes}\nReturned: {notes}" if assignment.notes else f"Returned: {notes}"
+                    assignment.notes = f"{assignment.notes}\nReturn notes: {notes}" if assignment.notes else f"Return notes: {notes}"
                 assignment.save()
 
             # Update device
             device.employee = None
+            device.condition = condition
             device.updated_by = request.user
             device.save()
 
-            return Response(
-                {'detail': 'Device unassigned successfully.'},
-                status=status.HTTP_200_OK
-            )
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+            return Response({
+                "error": 0,
+                "data": {
+                    "message": f"Device unassigned from {previous_employee.get_full_name()} successfully"
+                }
+            }, status=status.HTTP_200_OK)
+        
+        return Response({
+            "error": 1,
+            "message": "Validation failed",
+            "errors": serializer.errors
+        }, status=status.HTTP_400_BAD_REQUEST)
 
     @action(detail=True, methods=['get'])
     def assignment_history(self, request, pk=None):
-        """Get assignment history for a device"""
+        """
+        Get assignment history for a specific device
+        
+        Permission: Admin, Manager, HR only
+        """
         device = self.get_object()
-        assignments = DeviceAssignment.objects.filter(device=device).order_by('-assigned_date')
+        assignments = DeviceAssignment.objects.filter(
+            device=device
+        ).select_related(
+            'employee', 'assigned_by', 'returned_to'
+        ).order_by('-assigned_date')
+        
         serializer = DeviceAssignmentSerializer(assignments, many=True)
-        return Response(serializer.data)
+        return Response({
+            "error": 0,
+            "data": serializer.data
+        })
+    
+    @action(detail=False, methods=['get'], url_path='unassigned')
+    def unassigned_devices(self, request):
+        """
+        Get all unassigned devices
+        
+        Permission: Admin, Manager, HR only
+        """
+        devices = self.get_queryset().filter(
+            employee__isnull=True,
+            is_active=True,
+            status='working'
+        )
+        serializer = DeviceListSerializer(devices, many=True)
+        return Response({
+            "error": 0,
+            "data": serializer.data
+        })
+    
+    @action(detail=False, methods=['get'], url_path='warranty-expiring')
+    def warranty_expiring(self, request):
+        """
+        Get devices with warranty expiring in next 30 days
+        
+        Permission: Admin, Manager, HR only
+        """
+        from datetime import timedelta
+        
+        today = timezone.now().date()
+        next_30_days = today + timedelta(days=30)
+        
+        devices = self.get_queryset().filter(
+            warranty_expiry__gte=today,
+            warranty_expiry__lte=next_30_days,
+            is_active=True
+        ).order_by('warranty_expiry')
+        
+        serializer = DeviceListSerializer(devices, many=True)
+        return Response({
+            "error": 0,
+            "data": {
+                "count": devices.count(),
+                "devices": serializer.data
+            }
+        })
 
 
-class InventoryDashboardView(viewsets.ViewSet):
+class InventoryDashboardViewSet(viewsets.ViewSet):
     """
     ViewSet for inventory dashboard statistics
+    
+    Permission: Admin, Manager, HR only
     """
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, IsAdminManagerOrHR]
 
-    @action(detail=False, methods=['get'], url_path='dashboard')
-    def dashboard(self, request):
-        """Get dashboard summary with all device types and their statistics"""
+    @action(detail=False, methods=['get'], url_path='summary')
+    def summary(self, request):
+        """
+        Get dashboard summary with all device types and their statistics
+        GET /api/inventory/dashboard/summary/
+        """
         device_types = DeviceType.objects.filter(is_active=True).order_by('name')
         
         device_types_data = []
         total_devices = 0
+        total_assigned = 0
+        total_unassigned = 0
         
         for device_type in device_types:
             total = device_type.total_devices
             working = device_type.working_devices
+            assigned = device_type.assigned_devices
             unassigned = device_type.unassigned_devices
+            
             total_devices += total
+            total_assigned += assigned
+            total_unassigned += unassigned
             
             device_types_data.append({
                 'id': device_type.id,
@@ -265,11 +516,39 @@ class InventoryDashboardView(viewsets.ViewSet):
                 'description': device_type.description,
                 'total': total,
                 'working': working,
+                'assigned': assigned,
                 'unassigned': unassigned,
             })
+        
+        # Get status breakdown
+        status_breakdown = Device.objects.filter(
+            is_active=True
+        ).values('status').annotate(
+            count=Count('id')
+        ).order_by('status')
 
         return Response({
-            'total_devices': total_devices,
-            'device_types': device_types_data
+            "error": 0,
+            "data": {
+                'total_devices': total_devices,
+                'total_assigned': total_assigned,
+                'total_unassigned': total_unassigned,
+                'device_types': device_types_data,
+                'status_breakdown': list(status_breakdown)
+            }
         })
-
+    
+    @action(detail=False, methods=['get'], url_path='recent-assignments')
+    def recent_assignments(self, request):
+        """Get recent device assignments"""
+        limit = int(request.query_params.get('limit', 10))
+        
+        assignments = DeviceAssignment.objects.select_related(
+            'device', 'device__device_type', 'employee', 'assigned_by'
+        ).order_by('-assigned_date')[:limit]
+        
+        serializer = DeviceAssignmentSerializer(assignments, many=True)
+        return Response({
+            "error": 0,
+            "data": serializer.data
+        })

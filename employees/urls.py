@@ -8,7 +8,7 @@ from .views import (
 )
 
 router = DefaultRouter()
-router.register(r'employees', EmployeeViewSet, basename='employee')
+router.register(r'', EmployeeViewSet, basename='employee')
 router.register(r'emergency-contacts', EmergencyContactViewSet, basename='emergency-contact')
 router.register(r'educations', EducationViewSet, basename='education')
 router.register(r'work-histories', WorkHistoryViewSet, basename='work-history')
