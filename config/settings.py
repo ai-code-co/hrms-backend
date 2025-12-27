@@ -110,8 +110,6 @@ except ImportError:
 
 ROOT_URLCONF = 'config.urls'
 
-CORS_ALLOW_CREDENTIALS = True
-
 
 TEMPLATES = [
     {
@@ -128,23 +126,21 @@ TEMPLATES = [
     },
 ]
     
-# CORS Settings - configurable via environment variables
+# CORS & CSRF Settings - Definitve Production Fix
 CORS_ALLOW_CREDENTIALS = True
 CORS_ALLOW_ALL_ORIGINS = os.environ.get('CORS_ALLOW_ALL_ORIGINS', 'False') == 'True'
 
 # Browsers block credentials when using a wildcard origin
 if CORS_ALLOW_CREDENTIALS and CORS_ALLOW_ALL_ORIGINS:
-    # If using credentials, we MUST NOT use a wildcard, even in local dev
     CORS_ALLOW_ALL_ORIGINS = False
 
-# Strict Origins
+# Strict Origins (Explicit + Regex fallback)
 CORS_ALLOWED_ORIGINS = [
     "https://hrms-frontend-wheat.vercel.app",
     "https://hrms-backend-4vbf.onrender.com",
     "https://hrms-backend-09fn.onrender.com",
 ]
 
-# Robust Regex Origins (Handles subdomains and exact matches more flexibly)
 CORS_ALLOWED_ORIGIN_REGEXES = [
     r"^https://hrms-frontend-.*\.vercel\.app$",
     r"^https://hrms-backend-.*\.onrender\.com$",
@@ -152,18 +148,22 @@ CORS_ALLOWED_ORIGIN_REGEXES = [
     r"^http://127\.0\.0\.1(:\d+)?$",
 ]
 
-# CSRF Settings
+# CSRF Whitelist (Mandatory for POST requests)
 CSRF_TRUSTED_ORIGINS = [
-    "https://*.onrender.com",
-    "https://*.ngrok-free.dev",
-    "https://*.ngrok-free.app",
     "https://hrms-frontend-wheat.vercel.app",
+    "https://hrms-backend-4vbf.onrender.com",
+    "https://hrms-backend-09fn.onrender.com",
+    "https://*.onrender.com",
     "http://localhost",
     "http://127.0.0.1",
 ]
 
+CORS_URLS_REGEX = r'^/.*$'
+CORS_REPLACE_HTTPS_REFERER = False # Deprecated in newer versions
+
 
 # CSRF_COOKIE_DOMAIN = ".onrender.com" # Don't set this for cross-site!
+
 
 # Cookie Security (Mandatory for Vercel <-> Render cross-site logic)
 if not DEBUG:
@@ -171,16 +171,19 @@ if not DEBUG:
     CSRF_COOKIE_SECURE = True
     SESSION_COOKIE_SAMESITE = 'None'
     CSRF_COOKIE_SAMESITE = 'None'
-    # Important for Render's proxy
+    SESSION_COOKIE_HTTPONLY = True
+    
+    # Render Proxy Headers
     SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
-    SECURE_SSL_REDIRECT = False # Let Render handle HTTPS redirect
+    SECURE_SSL_REDIRECT = False 
+    SECURE_REFERRER_POLICY = "strict-origin-when-cross-origin"
 else:
     SESSION_COOKIE_SECURE = False
     CSRF_COOKIE_SECURE = False
     SESSION_COOKIE_SAMESITE = 'Lax'
     CSRF_COOKIE_SAMESITE = 'Lax'
 
-APPEND_SLASH = False # Prevents CORS redirects
+APPEND_SLASH = False # Prevents CORS-breaking redirects
 
 CORS_ALLOW_HEADERS = [
     "accept",
@@ -192,14 +195,14 @@ CORS_ALLOW_HEADERS = [
     "user-agent",
     "x-csrftoken",
     "x-requested-with",
-    # Modern browser "Client Hint" headers
     "sec-ch-ua",
     "sec-ch-ua-mobile",
     "sec-ch-ua-platform",
+    "referer",
 ]
 
-CORS_EXPOSE_HEADERS = ['Content-Type', 'X-CSRFToken']
-CORS_PREFLIGHT_MAX_AGE = 86400 # 24 hours
+CORS_EXPOSE_HEADERS = ['Content-Type', 'X-CSRFToken', 'Authorization']
+CORS_PREFLIGHT_MAX_AGE = 86400 
 
 CORS_ALLOW_METHODS = [
     "DELETE",
