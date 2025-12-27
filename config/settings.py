@@ -129,13 +129,13 @@ TEMPLATES = [
 ]
     
 # CORS Settings - configurable via environment variables
+CORS_ALLOW_CREDENTIALS = True
 CORS_ALLOW_ALL_ORIGINS = os.environ.get('CORS_ALLOW_ALL_ORIGINS', 'False') == 'True'
+
 # Browsers block credentials when using a wildcard origin
 if CORS_ALLOW_CREDENTIALS and CORS_ALLOW_ALL_ORIGINS:
     # If using credentials, we MUST NOT use a wildcard, even in local dev
     CORS_ALLOW_ALL_ORIGINS = False
-
-CORS_ALLOW_CREDENTIALS = True
 
 # Strict Origins
 CORS_ALLOWED_ORIGINS = [
@@ -162,7 +162,6 @@ CSRF_TRUSTED_ORIGINS = [
     "http://127.0.0.1",
 ]
 
-CORS_REPLACE_HTTPS_REFERER = True # Helps with CSRF during CORS
 
 # CSRF_COOKIE_DOMAIN = ".onrender.com" # Don't set this for cross-site!
 
