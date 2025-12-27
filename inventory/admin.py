@@ -6,20 +6,38 @@ from .models import DeviceType, Device, DeviceAssignment
 class DeviceTypeAdmin(admin.ModelAdmin):
     """Admin interface for DeviceType"""
     list_display = [
-        'name', 'total_devices', 'working_devices', 
+        'name', 'is_assignable', 'requires_serial_number',
+        'total_devices', 'working_devices', 
         'assigned_devices', 'unassigned_devices', 'is_active'
     ]
-    list_filter = ['is_active']
+    list_filter = ['is_active', 'is_assignable', 'requires_serial_number']
     search_fields = ['name', 'description']
     ordering = ['name']
     list_editable = ['is_active']
+    
+    fieldsets = (
+        ('Basic Information', {
+            'fields': ('name', 'description', 'icon')
+        }),
+        ('Configuration', {
+            'fields': (
+                'default_warranty_months',
+                'requires_serial_number', 'is_assignable', 'is_active'
+            )
+        }),
+        ('Statistics', {
+            'fields': ('total_devices', 'working_devices', 'assigned_devices', 'unassigned_devices'),
+            'classes': ('collapse',)
+        }),
+    )
+    readonly_fields = ['total_devices', 'working_devices', 'assigned_devices', 'unassigned_devices']
 
 
 @admin.register(Device)
 class DeviceAdmin(admin.ModelAdmin):
     """Admin interface for Device"""
     list_display = [
-        'id', 'device_type', 'serial_number', 'brand', 'model_name',
+        'id', 'device_type', 'serial_number', 'internal_serial_number', 'brand', 'model_name',
         'status', 'condition', 'employee', 'is_under_warranty', 'is_active'
     ]
     list_filter = [
@@ -27,7 +45,7 @@ class DeviceAdmin(admin.ModelAdmin):
         'purchase_date', 'warranty_expiry'
     ]
     search_fields = [
-        'serial_number', 'model_name', 'brand', 'notes',
+        'serial_number', 'internal_serial_number', 'model_name', 'brand', 'notes',
         'employee__first_name', 'employee__last_name', 'employee__employee_id'
     ]
     ordering = ['-created_at']
@@ -37,7 +55,7 @@ class DeviceAdmin(admin.ModelAdmin):
     
     fieldsets = (
         ('Device Information', {
-            'fields': ('device_type', 'serial_number', 'brand', 'model_name')
+            'fields': ('device_type', 'serial_number', 'internal_serial_number', 'brand', 'model_name')
         }),
         ('Status', {
             'fields': ('status', 'condition', 'is_active')
@@ -47,6 +65,9 @@ class DeviceAdmin(admin.ModelAdmin):
         }),
         ('Purchase & Warranty', {
             'fields': ('purchase_date', 'purchase_price', 'warranty_expiry')
+        }),
+        ('Images', {
+            'fields': ('invoice_image', 'device_image')
         }),
         ('Notes', {
             'fields': ('notes',),
@@ -84,7 +105,7 @@ class DeviceAssignmentAdmin(admin.ModelAdmin):
         'condition_at_assignment', 'condition_at_return'
     ]
     search_fields = [
-        'device__serial_number', 'device__device_type__name',
+        'device__serial_number', 'device__internal_serial_number', 'device__device_type__name',
         'employee__first_name', 'employee__last_name', 'employee__employee_id'
     ]
     ordering = ['-assigned_date']
