@@ -130,8 +130,9 @@ TEMPLATES = [
     
 # CORS Settings - configurable via environment variables
 CORS_ALLOW_ALL_ORIGINS = os.environ.get('CORS_ALLOW_ALL_ORIGINS', 'False') == 'True'
-if not DEBUG:
-    # Browsers block credentials when using a wildcard origin
+# Browsers block credentials when using a wildcard origin
+if CORS_ALLOW_CREDENTIALS and CORS_ALLOW_ALL_ORIGINS:
+    # If using credentials, we MUST NOT use a wildcard, even in local dev
     CORS_ALLOW_ALL_ORIGINS = False
 
 CORS_ALLOW_CREDENTIALS = True
@@ -147,8 +148,8 @@ CORS_ALLOWED_ORIGINS = [
 CORS_ALLOWED_ORIGIN_REGEXES = [
     r"^https://hrms-frontend-.*\.vercel\.app$",
     r"^https://hrms-backend-.*\.onrender\.com$",
-    r"^http://localhost:3000$",
-    r"^http://127\.0\.0\.1:3000$",
+    r"^http://localhost(:\d+)?$",
+    r"^http://127\.0\.0\.1(:\d+)?$",
 ]
 
 # CSRF Settings
@@ -157,6 +158,8 @@ CSRF_TRUSTED_ORIGINS = [
     "https://*.ngrok-free.dev",
     "https://*.ngrok-free.app",
     "https://hrms-frontend-wheat.vercel.app",
+    "http://localhost",
+    "http://127.0.0.1",
 ]
 
 CORS_REPLACE_HTTPS_REFERER = True # Helps with CSRF during CORS
