@@ -22,6 +22,8 @@ DEBUG = os.environ.get('DEBUG', 'False') == 'True'
 
 ALLOWED_HOSTS = ['*']
 
+DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
+
 # -------------------- Installed Apps --------------------
 INSTALLED_APPS = [
     'jet', 
