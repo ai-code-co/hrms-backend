@@ -127,26 +127,16 @@ TEMPLATES = [
 ]
     
 # CORS & CSRF Settings - Definitve Production Fix
-CORS_ALLOW_CREDENTIALS = True
+
 CORS_ALLOW_ALL_ORIGINS = os.environ.get('CORS_ALLOW_ALL_ORIGINS', 'False') == 'True'
 
-# Browsers block credentials when using a wildcard origin
-if CORS_ALLOW_CREDENTIALS and CORS_ALLOW_ALL_ORIGINS:
-    CORS_ALLOW_ALL_ORIGINS = False
+
 
 # Strict Origins (Explicit + Regex fallback)
-CORS_ALLOWED_ORIGINS = [
-    "https://hrms-frontend-wheat.vercel.app",
-    "https://hrms-backend-4vbf.onrender.com",
-    "https://hrms-backend-09fn.onrender.com",
-]
+CORS_ALLOW_ALL_ORIGINS = True
+CORS_ALLOW_CREDENTIALS = False
 
-CORS_ALLOWED_ORIGIN_REGEXES = [
-    r"^https://hrms-frontend-.*\.vercel\.app$",
-    r"^https://hrms-backend-.*\.onrender\.com$",
-    r"^http://localhost(:\d+)?$",
-    r"^http://127\.0\.0\.1(:\d+)?$",
-]
+
 
 
 # CSRF Whitelist (Mandatory for POST requests)

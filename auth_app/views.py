@@ -298,8 +298,9 @@ class AdminCreateUserView(CreateAPIView):
     """
 
 class LoginAPI(TokenObtainPairView):
+    permission_classes = [AllowAny]
     serializer_class = CustomTokenObtainPairSerializer
-    permission_classes = (AllowAny,)
+ 
 
 
 # ------------------------------------------------------------------
