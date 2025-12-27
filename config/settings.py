@@ -135,6 +135,7 @@ CORS_ALLOW_CREDENTIALS = True
 # For production, specify allowed origins
 CORS_ALLOWED_ORIGINS = [
     "https://hrms-frontend-wheat.vercel.app",
+    "https://hrms-backend-4vbf.onrender.com",
 ]
 
 # CSRF Settings
@@ -145,19 +146,24 @@ CSRF_TRUSTED_ORIGINS = [
     "https://hrms-frontend-wheat.vercel.app",
 ]
 
+# CSRF_COOKIE_DOMAIN = ".onrender.com" # Don't set this for cross-site!
+
 # Cookie Security (Mandatory for Vercel <-> Render cross-site logic)
 if not DEBUG:
     SESSION_COOKIE_SECURE = True
     CSRF_COOKIE_SECURE = True
     SESSION_COOKIE_SAMESITE = 'None'
     CSRF_COOKIE_SAMESITE = 'None'
-    # Ensure tokens are also cross-site friendly if using cookies for JWT
-    # (SimpleJWT usually uses headers, but these are good practice)
+    # Important for Render's proxy
+    SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
+    SECURE_SSL_REDIRECT = False # Let Render handle HTTPS redirect
 else:
     SESSION_COOKIE_SECURE = False
     CSRF_COOKIE_SECURE = False
     SESSION_COOKIE_SAMESITE = 'Lax'
     CSRF_COOKIE_SAMESITE = 'Lax'
+
+APPEND_SLASH = False # Prevents CORS redirects
 
 CORS_ALLOW_HEADERS = [
     "accept",
@@ -170,6 +176,9 @@ CORS_ALLOW_HEADERS = [
     "x-csrftoken",
     "x-requested-with",
 ]
+
+CORS_EXPOSE_HEADERS = ['Content-Type', 'X-CSRFToken']
+CORS_PREFLIGHT_MAX_AGE = 86400 # 24 hours
 
 CORS_ALLOW_METHODS = [
     "DELETE",
