@@ -136,11 +136,19 @@ if not DEBUG:
 
 CORS_ALLOW_CREDENTIALS = True
 
-# For production, specify allowed origins
+# Strict Origins
 CORS_ALLOWED_ORIGINS = [
     "https://hrms-frontend-wheat.vercel.app",
     "https://hrms-backend-4vbf.onrender.com",
     "https://hrms-backend-09fn.onrender.com",
+]
+
+# Robust Regex Origins (Handles subdomains and exact matches more flexibly)
+CORS_ALLOWED_ORIGIN_REGEXES = [
+    r"^https://hrms-frontend-.*\.vercel\.app$",
+    r"^https://hrms-backend-.*\.onrender\.com$",
+    r"^http://localhost:3000$",
+    r"^http://127\.0\.0\.1:3000$",
 ]
 
 # CSRF Settings
@@ -150,6 +158,8 @@ CSRF_TRUSTED_ORIGINS = [
     "https://*.ngrok-free.app",
     "https://hrms-frontend-wheat.vercel.app",
 ]
+
+CORS_REPLACE_HTTPS_REFERER = True # Helps with CSRF during CORS
 
 # CSRF_COOKIE_DOMAIN = ".onrender.com" # Don't set this for cross-site!
 
@@ -180,6 +190,10 @@ CORS_ALLOW_HEADERS = [
     "user-agent",
     "x-csrftoken",
     "x-requested-with",
+    # Modern browser "Client Hint" headers
+    "sec-ch-ua",
+    "sec-ch-ua-mobile",
+    "sec-ch-ua-platform",
 ]
 
 CORS_EXPOSE_HEADERS = ['Content-Type', 'X-CSRFToken']
@@ -197,7 +211,13 @@ CORS_ALLOW_METHODS = [
 WSGI_APPLICATION = 'config.wsgi.application'
 
 # Update ALLOWED_HOSTS based on environment
-if not DEBUG:
+env_allowed_hosts = os.environ.get('ALLOWED_HOSTS')
+if env_allowed_hosts:
+    if env_allowed_hosts == '*':
+        ALLOWED_HOSTS = ['*']
+    else:
+        ALLOWED_HOSTS = [h.strip() for h in env_allowed_hosts.split(',')]
+elif not DEBUG:
     render_hostname = os.environ.get('RENDER_EXTERNAL_HOSTNAME')
     if render_hostname:
         ALLOWED_HOSTS = [render_hostname, 'localhost', '127.0.0.1']
