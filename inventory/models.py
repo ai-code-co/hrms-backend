@@ -34,21 +34,25 @@ class DeviceType(models.Model):
     @property
     def total_devices(self):
         """Total count of active devices of this type"""
+        if not hasattr(self, 'devices'): return 0
         return self.devices.filter(is_active=True).count()
 
     @property
     def working_devices(self):
         """Count of working devices of this type"""
+        if not hasattr(self, 'devices'): return 0
         return self.devices.filter(is_active=True, status='working').count()
 
     @property
     def unassigned_devices(self):
         """Count of unassigned devices of this type"""
+        if not hasattr(self, 'devices'): return 0
         return self.devices.filter(is_active=True, employee__isnull=True).count()
     
     @property
     def assigned_devices(self):
         """Count of assigned devices of this type"""
+        if not hasattr(self, 'devices'): return 0
         return self.devices.filter(is_active=True, employee__isnull=False).count()
 
 
@@ -269,5 +273,7 @@ class DeviceAssignment(models.Model):
     def duration_days(self):
         """Get duration of assignment in days"""
         from django.utils import timezone
+        if not self.assigned_date:
+            return 0
         end_date = self.returned_date or timezone.now()
         return (end_date - self.assigned_date).days

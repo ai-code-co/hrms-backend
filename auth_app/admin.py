@@ -45,8 +45,9 @@ class CustomUserAdmin(UserAdmin):
                 "gender",
                 "job_title",
                 "department",
-                "designation",
-                "reporting_manager",
+                "form_department",
+                "form_designation",
+                "form_reporting_manager",
             ),
         }),
     )
@@ -71,9 +72,9 @@ class CustomUserAdmin(UserAdmin):
             if is_new_user:
                 # Extract employee data from form
                 phone = form.cleaned_data.get('phone_number')
-                department = form.cleaned_data.get('department')
-                designation = form.cleaned_data.get('designation')
-                reporting_manager = form.cleaned_data.get('reporting_manager')
+                department = form.cleaned_data.get('form_department')
+                designation = form.cleaned_data.get('form_designation')
+                reporting_manager = form.cleaned_data.get('form_reporting_manager')
 
                 # Create Employee profile
                 Employee.objects.create(
