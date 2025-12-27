@@ -148,6 +148,7 @@ CORS_ALLOWED_ORIGIN_REGEXES = [
     r"^http://127\.0\.0\.1(:\d+)?$",
 ]
 
+
 # CSRF Whitelist (Mandatory for POST requests)
 CSRF_TRUSTED_ORIGINS = [
     "https://hrms-frontend-wheat.vercel.app",
@@ -159,7 +160,6 @@ CSRF_TRUSTED_ORIGINS = [
 ]
 
 CORS_URLS_REGEX = r'^/.*$'
-CORS_REPLACE_HTTPS_REFERER = False # Deprecated in newer versions
 
 
 # CSRF_COOKIE_DOMAIN = ".onrender.com" # Don't set this for cross-site!
