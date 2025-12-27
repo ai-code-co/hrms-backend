@@ -126,9 +126,7 @@ TEMPLATES = [
     },
 ]
     
-# CORS & CSRF Settings - Definitve Production Fix
 
-# CORS_ALLOW_ALL_ORIGINS = os.environ.get('CORS_ALLOW_ALL_ORIGINS', 'False') == 'True'
 
 
 
@@ -173,40 +171,16 @@ else:
     SESSION_COOKIE_SAMESITE = 'Lax'
     CSRF_COOKIE_SAMESITE = 'Lax'
 
-APPEND_SLASH = False # Prevents CORS-breaking redirects
-
-CORS_ALLOW_HEADERS = [
-    "accept",
-    "accept-encoding",
-    "authorization",
-    "content-type",
-    "dnt",
-    "origin",
-    "user-agent",
-    "x-csrftoken",
-    "x-requested-with",
-    "sec-ch-ua",
-    "sec-ch-ua-mobile",
-    "sec-ch-ua-platform",
-    "referer",
-]
-
-CORS_EXPOSE_HEADERS = ['Content-Type', 'X-CSRFToken', 'Authorization']
-CORS_PREFLIGHT_MAX_AGE = 86400 
-
-CORS_ALLOW_METHODS = [
-    "DELETE",
-    "GET",
-    "OPTIONS",
-    "PATCH",
-    "POST",
-    "PUT",
-]
+APPEND_SLASH = True
 
 
-CORS_ALLOWED_ORIGINS = [
-    "https://hrms-frontend-wheat.vercel.app",
-]
+CORS_ALLOW_HEADERS = ["*"]
+CORS_ALLOW_METHODS = ["*"]
+
+
+# CORS_ALLOWED_ORIGINS = [
+#     "https://hrms-frontend-wheat.vercel.app",
+# ]
 
 WSGI_APPLICATION = 'config.wsgi.application'
 
