@@ -18,6 +18,11 @@ from .serializers import AdminCreateUserSerializer, ChangePasswordSerializer, Cu
 from .models import User
 from rest_framework.views import APIView
 from rest_framework.response import Response
+from rest_framework_simplejwt.tokens import RefreshToken
+from rest_framework_simplejwt.token_blacklist.models import OutstandingToken, BlacklistedToken
+from rest_framework import status
+from drf_yasg.utils import swagger_auto_schema
+from drf_yasg import openapi
 from django.shortcuts import get_object_or_404
 from .models import User
 from .utils import generate_password_setup_token, verify_email_token
@@ -295,5 +300,55 @@ class AdminCreateUserView(CreateAPIView):
 class LoginAPI(TokenObtainPairView):
     serializer_class = CustomTokenObtainPairSerializer
     permission_classes = (AllowAny,)
+
+
+# ------------------------------------------------------------------
+# LOGOUT (Blacklist Token)
+# ------------------------------------------------------------------
+
+class LogoutView(APIView):
+    """
+    Standard Logout API.
+    Supports two modes:
+    Option A: Logout from current device only (Requires refresh token).
+    Option B: Logout from all devices (Stateless, no body required).
+    """
+    permission_classes = [IsAuthenticated]
+
+    @swagger_auto_schema(
+        operation_description="Log out user (Option B currently active: Logs out from ALL devices).",
+        responses={
+            205: openapi.Response("Logout successful"),
+            400: openapi.Response("Logout failed")
+        }
+    )
+    def post(self, request):
+        # ---------------------------------------------------------
+        # OPTION A: Logout from single device (Requires 'refresh' token in body)
+        # ---------------------------------------------------------
+        try:
+            refresh_token = request.data.get("refresh")
+            if not refresh_token:
+                return Response({"error": "Refresh token is required"}, status=status.HTTP_400_BAD_REQUEST)
+            token = RefreshToken(refresh_token)
+            token.blacklist()
+            return Response({"message": "Logout successful"}, status=status.HTTP_205_RESET_CONTENT)
+        except Exception as e:
+            return Response({"error": "Invalid token"}, status=status.HTTP_400_BAD_REQUEST)
+
+        # ---------------------------------------------------------
+        # OPTION B: Logout from all devices (Nuclear Logout)
+        # ---------------------------------------------------------
+        # try:
+        #     tokens = OutstandingToken.objects.filter(user=request.user)
+        #     for token in tokens:
+        #         BlacklistedToken.objects.get_or_create(token=token)
+
+        #     return Response(
+        #         {"message": "Logged out successfully from all devices."}, 
+        #         status=status.HTTP_205_RESET_CONTENT
+        #     )
+        # except Exception as e:
+        #     return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
 
