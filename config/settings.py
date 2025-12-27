@@ -128,7 +128,7 @@ TEMPLATES = [
     
 # CORS & CSRF Settings - Definitve Production Fix
 
-CORS_ALLOW_ALL_ORIGINS = os.environ.get('CORS_ALLOW_ALL_ORIGINS', 'False') == 'True'
+# CORS_ALLOW_ALL_ORIGINS = os.environ.get('CORS_ALLOW_ALL_ORIGINS', 'False') == 'True'
 
 
 
@@ -201,6 +201,11 @@ CORS_ALLOW_METHODS = [
     "PATCH",
     "POST",
     "PUT",
+]
+
+
+CORS_ALLOWED_ORIGINS = [
+    "https://hrms-frontend-wheat.vercel.app",
 ]
 
 WSGI_APPLICATION = 'config.wsgi.application'
