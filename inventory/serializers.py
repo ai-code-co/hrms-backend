@@ -3,6 +3,13 @@ from .models import DeviceType, Device, DeviceAssignment
 from employees.models import Employee
 
 
+class DeviceTypeDropdownSerializer(serializers.ModelSerializer):
+    """Minimal serializer for device type dropdowns"""
+    class Meta:
+        model = DeviceType
+        fields = ['id', 'name']
+
+
 class DeviceTypeListSerializer(serializers.ModelSerializer):
     """Lightweight serializer for device type lists"""
     total = serializers.IntegerField(source='total_devices', read_only=True)
@@ -13,7 +20,8 @@ class DeviceTypeListSerializer(serializers.ModelSerializer):
     class Meta:
         model = DeviceType
         fields = [
-            'id', 'name', 'description', 'is_active', 
+            'id', 'name', 'description', 'icon',
+            'is_assignable', 'requires_serial_number', 'is_active', 
             'total', 'working', 'unassigned', 'assigned', 
             'created_at'
         ]
@@ -29,7 +37,9 @@ class DeviceTypeSerializer(serializers.ModelSerializer):
     class Meta:
         model = DeviceType
         fields = [
-            'id', 'name', 'description', 'is_active',
+            'id', 'name', 'description', 'icon',
+            'default_warranty_months', 'requires_serial_number',
+            'is_assignable', 'is_active',
             'total', 'working', 'unassigned', 'assigned',
             'created_at', 'updated_at'
         ]
@@ -49,11 +59,12 @@ class DeviceListSerializer(serializers.ModelSerializer):
         model = Device
         fields = [
             'id', 'device_type', 'device_type_name', 
-            'serial_number', 'model_name', 'brand',
+            'serial_number', 'internal_serial_number', 'model_name', 'brand',
             'status', 'status_display', 
             'condition', 'condition_display',
             'employee', 'employee_id', 'employee_name',
             'purchase_date', 'warranty_expiry', 'is_under_warranty',
+            'invoice_image', 'device_image',
             'is_active', 'created_at'
         ]
     
@@ -79,12 +90,13 @@ class DeviceDetailSerializer(serializers.ModelSerializer):
         model = Device
         fields = [
             'id', 'device_type', 'device_type_detail', 
-            'serial_number', 'model_name', 'brand',
+            'serial_number', 'internal_serial_number', 'model_name', 'brand',
             'status', 'status_display',
             'condition', 'condition_display',
             'employee', 'employee_detail',
             'purchase_date', 'purchase_price', 
             'warranty_expiry', 'is_under_warranty',
+            'invoice_image', 'device_image',
             'notes', 'is_active', 'is_assigned',
             'created_at', 'updated_at',
             'created_by', 'created_by_name', 
@@ -127,26 +139,45 @@ class DeviceDetailSerializer(serializers.ModelSerializer):
 
 class DeviceCreateUpdateSerializer(serializers.ModelSerializer):
     """Serializer for creating/updating devices"""
+    
+    serial_number = serializers.CharField(required=True)
+    internal_serial_number = serializers.CharField(required=True)
+    purchase_price = serializers.DecimalField(max_digits=10, decimal_places=2, required=True)
 
     class Meta:
         model = Device
         fields = [
-            'device_type', 'serial_number', 'model_name', 'brand',
+            'device_type', 'serial_number', 'internal_serial_number', 'model_name', 'brand',
             'status', 'condition', 'employee',
             'purchase_date', 'purchase_price', 'warranty_expiry',
+            'invoice_image', 'device_image',
             'notes', 'is_active'
         ]
 
     def validate_serial_number(self, value):
         """Validate serial number uniqueness"""
-        if value:
-            queryset = Device.objects.filter(serial_number=value)
-            if self.instance:
-                queryset = queryset.exclude(pk=self.instance.pk)
-            if queryset.exists():
-                raise serializers.ValidationError(
-                    "A device with this serial number already exists."
-                )
+        if not value:
+            raise serializers.ValidationError("Serial number is required.")
+        queryset = Device.objects.filter(serial_number=value)
+        if self.instance:
+            queryset = queryset.exclude(pk=self.instance.pk)
+        if queryset.exists():
+            raise serializers.ValidationError(
+                "A device with this serial number already exists."
+            )
+        return value
+    
+    def validate_internal_serial_number(self, value):
+        """Validate internal serial number uniqueness"""
+        if not value:
+            raise serializers.ValidationError("Internal serial number is required.")
+        queryset = Device.objects.filter(internal_serial_number=value)
+        if self.instance:
+            queryset = queryset.exclude(pk=self.instance.pk)
+        if queryset.exists():
+            raise serializers.ValidationError(
+                "A device with this internal serial number already exists."
+            )
         return value
     
     def validate(self, data):
@@ -200,43 +231,35 @@ class DeviceAssignmentSerializer(serializers.ModelSerializer):
         return None
 
 
-class DeviceAssignSerializer(serializers.Serializer):
-    """Serializer for assigning a device to an employee"""
+class DeviceAssignmentActionSerializer(serializers.Serializer):
+    """
+    Unified serializer for assigning/unassigning a device
+    
+    - To assign: Provide 'employee' field
+    - To unassign: Omit 'employee' field or set to null
+    """
     employee = serializers.PrimaryKeyRelatedField(
         queryset=Employee.objects.filter(is_active=True),
-        required=True,
-        help_text="Employee ID to assign the device to"
+        required=False,
+        allow_null=True,
+        help_text="Employee ID to assign the device to. Omit or set to null to unassign."
     )
     notes = serializers.CharField(
         required=False, 
         allow_blank=True, 
         max_length=500,
-        help_text="Notes about the assignment"
+        help_text="Notes about the assignment/unassignment"
     )
     condition = serializers.ChoiceField(
         choices=Device.CONDITION_CHOICES,
         required=False,
-        help_text="Device condition at assignment"
+        help_text="Device condition at assignment/return"
     )
 
     def validate_employee(self, value):
-        """Validate employee is active"""
-        if not value.is_active:
+        """Validate employee is active if provided"""
+        if value and not value.is_active:
             raise serializers.ValidationError(
                 "Cannot assign device to inactive employee."
             )
         return value
-
-
-class DeviceUnassignSerializer(serializers.Serializer):
-    """Serializer for unassigning a device from an employee"""
-    notes = serializers.CharField(
-        required=False, 
-        allow_blank=True,
-        help_text="Notes about the return"
-    )
-    condition = serializers.ChoiceField(
-        choices=Device.CONDITION_CHOICES,
-        required=False,
-        help_text="Device condition at return"
-    )

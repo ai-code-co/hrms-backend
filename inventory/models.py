@@ -15,6 +15,25 @@ class DeviceType(models.Model):
         blank=True,
         help_text="Description of the device type"
     )
+    icon = models.ImageField(
+        upload_to='device_types/icons/',
+        blank=True,
+        null=True,
+        help_text="Visual icon for UI/dashboard"
+    )
+    default_warranty_months = models.PositiveIntegerField(
+        null=True,
+        blank=True,
+        help_text="Default warranty period in months (e.g., 12, 24, 36)"
+    )
+    requires_serial_number = models.BooleanField(
+        default=False,
+        help_text="Must have serial number? (True for laptops, False for mouse)"
+    )
+    is_assignable = models.BooleanField(
+        default=True,
+        help_text="Can be assigned to employee? (True for laptop, False for office printer)"
+    )
     is_active = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -82,9 +101,12 @@ class Device(models.Model):
     serial_number = models.CharField(
         max_length=100,
         unique=True,
-        null=True,
-        blank=True,
         help_text="Device serial number"
+    )
+    internal_serial_number = models.CharField(
+        max_length=100,
+        unique=True,
+        help_text="Internal Serial No."
     )
     model_name = models.CharField(
         max_length=200,
@@ -124,14 +146,24 @@ class Device(models.Model):
     purchase_price = models.DecimalField(
         max_digits=10,
         decimal_places=2,
-        null=True,
-        blank=True,
         help_text="Purchase price of the device"
     )
     warranty_expiry = models.DateField(
         null=True,
         blank=True,
         help_text="Warranty expiry date"
+    )
+    invoice_image = models.ImageField(
+        upload_to='devices/invoices/',
+        blank=True,
+        null=True,
+        help_text="Image of the purchase invoice"
+    )
+    device_image = models.ImageField(
+        upload_to='devices/images/',
+        blank=True,
+        null=True,
+        help_text="Image of the device"
     )
     notes = models.TextField(
         blank=True,
@@ -163,6 +195,7 @@ class Device(models.Model):
             models.Index(fields=['device_type', 'status']),
             models.Index(fields=['employee']),
             models.Index(fields=['serial_number']),
+            models.Index(fields=['internal_serial_number']),
             models.Index(fields=['is_active']),
             models.Index(fields=['status']),
         ]
@@ -269,5 +302,8 @@ class DeviceAssignment(models.Model):
     def duration_days(self):
         """Get duration of assignment in days"""
         from django.utils import timezone
+        if not self.assigned_date:
+            return None
+
         end_date = self.returned_date or timezone.now()
         return (end_date - self.assigned_date).days
