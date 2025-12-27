@@ -37,7 +37,6 @@ INSTALLED_APPS = [
     'rest_framework_simplejwt.token_blacklist',
     'auth_app.apps.AuthAppConfig',
     "corsheaders",
-    # 'auth_app',
     'anymail',
     'departments.apps.DepartmentsConfig',
     'employees.apps.EmployeesConfig',
@@ -57,9 +56,9 @@ INSTALLED_APPS = [
     'django.contrib.staticfiles',
 ]
 
-# MIDDLEWARE configuration follows
+# MIDDLEWARE configuration
 MIDDLEWARE = [
-    "corsheaders.middleware.CorsMiddleware",
+    "corsheaders.middleware.CorsMiddleware",  # Must be first
     "django.middleware.security.SecurityMiddleware",
     "whitenoise.middleware.WhiteNoiseMiddleware",
     'django.contrib.sessions.middleware.SessionMiddleware',
@@ -70,6 +69,7 @@ MIDDLEWARE = [
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
 ]
 
+# REST Framework
 REST_FRAMEWORK = {
     "DEFAULT_AUTHENTICATION_CLASSES": (
         "rest_framework_simplejwt.authentication.JWTAuthentication",
@@ -125,20 +125,21 @@ TEMPLATES = [
         },
     },
 ]
-    
 
 
+# -------------------- CORS & CSRF Settings for testing --------------------
 
+from corsheaders.defaults import default_headers
 
-# Strict Origins (Explicit + Regex fallback)
-CORS_ALLOW_ALL_ORIGINS = True
-CORS_ALLOW_CREDENTIALS = False
+CORS_ALLOW_ALL_ORIGINS = True  # Allow all for testing
+CORS_ALLOW_CREDENTIALS = False  # JWT only
+CORS_ALLOW_HEADERS = list(default_headers) + ["Authorization"]
+CORS_ALLOW_METHODS = ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"]
+CORS_URLS_REGEX = r'^/.*$'
 
-
-
-
-# CSRF Whitelist (Mandatory for POST requests)
+# Allow all Vercel frontends and Render domains
 CSRF_TRUSTED_ORIGINS = [
+    "https://*.vercel.app",
     "https://hrms-frontend-wheat.vercel.app",
     "https://hrms-backend-4vbf.onrender.com",
     "https://hrms-backend-09fn.onrender.com",
@@ -147,24 +148,13 @@ CSRF_TRUSTED_ORIGINS = [
     "http://127.0.0.1",
 ]
 
-CORS_URLS_REGEX = r'^/.*$'
-
-
-# CSRF_COOKIE_DOMAIN = ".onrender.com" # Don't set this for cross-site!
-
-
-# Cookie Security (Mandatory for Vercel <-> Render cross-site logic)
+# Cookie security for cross-site
 if not DEBUG:
     SESSION_COOKIE_SECURE = True
     CSRF_COOKIE_SECURE = True
     SESSION_COOKIE_SAMESITE = 'None'
     CSRF_COOKIE_SAMESITE = 'None'
     SESSION_COOKIE_HTTPONLY = True
-    
-    # Render Proxy Headers
-    SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
-    SECURE_SSL_REDIRECT = False 
-    SECURE_REFERRER_POLICY = "strict-origin-when-cross-origin"
 else:
     SESSION_COOKIE_SECURE = False
     CSRF_COOKIE_SECURE = False
@@ -173,14 +163,9 @@ else:
 
 APPEND_SLASH = True
 
-
-CORS_ALLOW_HEADERS = ["*"]
-CORS_ALLOW_METHODS = ["*"]
+# -------------------- End CORS/CSRF --------------------
 
 
-# CORS_ALLOWED_ORIGINS = [
-#     "https://hrms-frontend-wheat.vercel.app",
-# ]
 
 WSGI_APPLICATION = 'config.wsgi.application'
 
@@ -204,12 +189,10 @@ else:
 STATIC_ROOT = os.path.join(BASE_DIR, 'staticfiles')
 STATIC_URL = '/static/'
 
-# Media files (for file uploads)
 MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
 MEDIA_URL = '/media/'
 
 STATICFILES_STORAGE = "whitenoise.storage.CompressedManifestStaticFilesStorage"
-
 
 # Database
 
@@ -228,16 +211,13 @@ DATABASES = {
     }
 }
 
-# Update database configuration from DATABASE_URL if available (for Render/Neon)
-import dj_database_url
 db_from_env = dj_database_url.config(conn_max_age=500)
 DATABASES['default'].update(db_from_env)
 
-# Fix for TiDB/MySQL SSL: 'ssl-mode' is not supported by mysqlclient (it's inside OPTIONS)
+# SSL fixes for Render / TiDB
 if 'OPTIONS' in DATABASES['default'] and 'ssl-mode' in DATABASES['default']['OPTIONS']:
     del DATABASES['default']['OPTIONS']['ssl-mode']
-    
-# Add correct SSL config based on which driver is active (PyMySQL for local mac, mysqlclient for Render)
+
 db_host = DATABASES['default'].get('HOST', '')
 if os.environ.get('RENDER') or (db_host and 'tidbcloud.com' in db_host):
     if 'OPTIONS' not in DATABASES['default']:
@@ -245,84 +225,41 @@ if os.environ.get('RENDER') or (db_host and 'tidbcloud.com' in db_host):
             'charset': 'utf8mb4',
             'init_command': "SET sql_mode='STRICT_TRANS_TABLES'",
         }
-    
-    # Remove 'ssl-mode' (dash) if parsing put it there
     if 'ssl-mode' in DATABASES['default']['OPTIONS']:
         del DATABASES['default']['OPTIONS']['ssl-mode']
-    
+
     import sys
     is_pymysql = 'pymysql' in sys.modules
-    
     if is_pymysql:
-        # PyMySQL SSL config
         DATABASES['default']['OPTIONS']['ssl'] = {'ssl_mode': 'REQUIRED'}
     else:
-        # mysqlclient SSL config
         DATABASES['default']['OPTIONS']['ssl_mode'] = 'REQUIRED'
-        DATABASES['default']['OPTIONS']['ssl'] = {} # Often needed to trigger SSL handshake
-
-
-DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
-
+        DATABASES['default']['OPTIONS']['ssl'] = {}
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
-# Password validation
 AUTH_USER_MODEL = "auth_app.User"
 
-# https://docs.djangoproject.com/en/6.0/ref/settings/#auth-password-validators
-
 AUTH_PASSWORD_VALIDATORS = [
-    {
-        'NAME': 'django.contrib.auth.password_validation.UserAttributeSimilarityValidator',
-    },
-    {
-        'NAME': 'django.contrib.auth.password_validation.MinimumLengthValidator',
-    },
-    {
-        'NAME': 'django.contrib.auth.password_validation.CommonPasswordValidator',
-    },
-    {
-        'NAME': 'django.contrib.auth.password_validation.NumericPasswordValidator',
-    },
+    {'NAME': 'django.contrib.auth.password_validation.UserAttributeSimilarityValidator',},
+    {'NAME': 'django.contrib.auth.password_validation.MinimumLengthValidator',},
+    {'NAME': 'django.contrib.auth.password_validation.CommonPasswordValidator',},
+    {'NAME': 'django.contrib.auth.password_validation.NumericPasswordValidator',},
 ]
 
-
-# Internationalization
-# https://docs.djangoproject.com/en/6.0/topics/i18n/
-
 LANGUAGE_CODE = os.environ.get('LANGUAGE_CODE', 'en-us')
-
 TIME_ZONE = os.environ.get('TIME_ZONE', 'Asia/Kolkata')
-
 USE_I18N = True
-
 USE_TZ = True
-
-
-# Static files (CSS, JavaScript, Images)
-# https://docs.djangoproject.com/en/6.0/howto/static-files/
 
 STATIC_URL = 'static/'
 
-
-# email
-# print('Api key',os.getenv("MAILGUN_API_KEY"))
+# Email
 ANYMAIL = {
-    # (exact settings here depend on your ESP...)
    "SENDINBLUE_API_KEY": os.getenv("MAILGUN_API_KEY"),
-  
-  
 }
 EMAIL_BACKEND = "anymail.backends.sendinblue.EmailBackend"
-
 DEFAULT_FROM_EMAIL = "HRMS <devpython549@gmail.com>"
-
-print("EMAIL USER:", DEFAULT_FROM_EMAIL)
-print("EMAIL BACKEND:", EMAIL_BACKEND)
-
-
-
 
 SWAGGER_SETTINGS = {
     'SECURITY_DEFINITIONS': {
@@ -336,20 +273,11 @@ SWAGGER_SETTINGS = {
     'USE_SESSION_AUTH': False,
 }
 
-# CSRF_TRUSTED_ORIGINS is now handled above in the consolidated section
-
 LOGGING = {
     'version': 1,
     'disable_existing_loggers': False,
-    'handlers': {
-        'console': {
-            'class': 'logging.StreamHandler',
-        },
-    },
-    'root': {
-        'handlers': ['console'],
-        'level': 'DEBUG',
-    },
+    'handlers': {'console': {'class': 'logging.StreamHandler',},},
+    'root': {'handlers': ['console'], 'level': 'DEBUG',},
 }
 
 # Attendance Settings
