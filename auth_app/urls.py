@@ -1,5 +1,5 @@
 from django.urls import path
-from .views import ChangePasswordView, ForgotPasswordView, LoginAPI, AdminCreateUserView, SetPasswordView, UserProfileView, VerifyEmailView
+from .views import ChangePasswordView, ForgotPasswordView, LoginAPI, AdminCreateUserView, SetPasswordView, UserProfileView, VerifyEmailView, LogoutView
 from rest_framework_simplejwt.views import TokenRefreshView
 from django.conf import settings
 from django.conf.urls.static import static
@@ -16,6 +16,7 @@ urlpatterns = [
     path("forgot-password/", ForgotPasswordView.as_view()),
     path("refresh-token/", TokenRefreshView.as_view(), name="token_refresh"),
     path("me/", UserProfileView.as_view(), name="user-profile"),
+    path("logout/", LogoutView.as_view(), name="logout"),
     path("create-user/", AdminCreateUserView.as_view(), name="admin-create-user"),
    
 ]

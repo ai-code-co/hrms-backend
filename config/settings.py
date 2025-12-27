@@ -25,7 +25,7 @@ if not SECRET_KEY:
 
 DEBUG = os.environ.get('DEBUG', 'False') == 'True'
 
-ALLOWED_HOSTS = []
+ALLOWED_HOSTS = ['*']
 
 
 # Application definition
@@ -34,6 +34,7 @@ INSTALLED_APPS = [
     'jet', 
     'rest_framework',
     'rest_framework_simplejwt',
+    'rest_framework_simplejwt.token_blacklist',
     'auth_app.apps.AuthAppConfig',
     "corsheaders",
     # 'auth_app',
@@ -56,10 +57,7 @@ INSTALLED_APPS = [
     'django.contrib.staticfiles',
 ]
 
-CORS_ALLOWED_ORIGINS = [
-    "https://hrms-frontend-wheat.vercel.app",
-]
-
+# MIDDLEWARE configuration follows
 MIDDLEWARE = [
     "corsheaders.middleware.CorsMiddleware",
     "django.middleware.security.SecurityMiddleware",
@@ -132,14 +130,34 @@ TEMPLATES = [
     
 # CORS Settings - configurable via environment variables
 CORS_ALLOW_ALL_ORIGINS = os.environ.get('CORS_ALLOW_ALL_ORIGINS', 'False') == 'True'
-CORS_ALLOW_CREDENTIALS = os.environ.get('CORS_ALLOW_CREDENTIALS', 'True') == 'True'
+CORS_ALLOW_CREDENTIALS = True
 
-APPEND_SLASH = False
-
-# For production, specify allowed origins (comma-separated)
+# For production, specify allowed origins
 CORS_ALLOWED_ORIGINS = [
     "https://hrms-frontend-wheat.vercel.app",
 ]
+
+# CSRF Settings
+CSRF_TRUSTED_ORIGINS = [
+    "https://*.onrender.com",
+    "https://*.ngrok-free.dev",
+    "https://*.ngrok-free.app",
+    "https://hrms-frontend-wheat.vercel.app",
+]
+
+# Cookie Security (Mandatory for Vercel <-> Render cross-site logic)
+if not DEBUG:
+    SESSION_COOKIE_SECURE = True
+    CSRF_COOKIE_SECURE = True
+    SESSION_COOKIE_SAMESITE = 'None'
+    CSRF_COOKIE_SAMESITE = 'None'
+    # Ensure tokens are also cross-site friendly if using cookies for JWT
+    # (SimpleJWT usually uses headers, but these are good practice)
+else:
+    SESSION_COOKIE_SECURE = False
+    CSRF_COOKIE_SECURE = False
+    SESSION_COOKIE_SAMESITE = 'Lax'
+    CSRF_COOKIE_SAMESITE = 'Lax'
 
 CORS_ALLOW_HEADERS = [
     "accept",
@@ -211,8 +229,7 @@ DATABASES['default'].update(db_from_env)
 if 'OPTIONS' in DATABASES['default'] and 'ssl-mode' in DATABASES['default']['OPTIONS']:
     del DATABASES['default']['OPTIONS']['ssl-mode']
     
-# Add correct SSL config for mysqlclient when running on Render
-# Add correct SSL config for mysqlclient when running on Render OR connecting to TiDB
+# Add correct SSL config based on which driver is active (PyMySQL for local mac, mysqlclient for Render)
 db_host = DATABASES['default'].get('HOST', '')
 if os.environ.get('RENDER') or (db_host and 'tidbcloud.com' in db_host):
     if 'OPTIONS' not in DATABASES['default']:
@@ -225,9 +242,16 @@ if os.environ.get('RENDER') or (db_host and 'tidbcloud.com' in db_host):
     if 'ssl-mode' in DATABASES['default']['OPTIONS']:
         del DATABASES['default']['OPTIONS']['ssl-mode']
     
-    # Force SSL (preserve existing charset and init_command)
-    DATABASES['default']['OPTIONS']['ssl_mode'] = 'REQUIRED'
-    DATABASES['default']['OPTIONS']['ssl'] = {} # Often needed to trigger SSL handshake
+    import sys
+    is_pymysql = 'pymysql' in sys.modules
+    
+    if is_pymysql:
+        # PyMySQL SSL config
+        DATABASES['default']['OPTIONS']['ssl'] = {'ssl_mode': 'REQUIRED'}
+    else:
+        # mysqlclient SSL config
+        DATABASES['default']['OPTIONS']['ssl_mode'] = 'REQUIRED'
+        DATABASES['default']['OPTIONS']['ssl'] = {} # Often needed to trigger SSL handshake
 
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
@@ -304,7 +328,7 @@ SWAGGER_SETTINGS = {
     'USE_SESSION_AUTH': False,
 }
 
-CSRF_TRUSTED_ORIGINS = ["https://*.onrender.com","https://*.ngrok-free.dev", "https://*.ngrok-free.app", "https://hrms-frontend-wheat.vercel.app", "https://protrudent-wallace-bifurcately.ngrok-free.dev", "https://protrudent-wallace-bifurcately.ngrok-free.app"]
+# CSRF_TRUSTED_ORIGINS is now handled above in the consolidated section
 
 LOGGING = {
     'version': 1,
