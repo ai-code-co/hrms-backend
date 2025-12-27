@@ -39,8 +39,9 @@ from config.views import TableDataView, welcome_view
 
 urlpatterns = [
     path('', welcome_view, name='welcome'),
-    path('api/slack/interactions/', include('notifications.urls')),
-    path('slack/interactions/', include('notifications.urls')), # Root fallback
+    re_path(r'^api/slack/interactions/?', include('notifications.urls')),
+    re_path(r'^slack/interactions/?', include('notifications.urls')), # Root fallback
+    re_path(r'^notifications/slack/interactions/?', include('notifications.urls')), # Extra fallback
     path('jet/', include('jet.urls', 'jet')),  
     path('admin/', admin.site.urls),
     path("auth/", include("auth_app.urls")),

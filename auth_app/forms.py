@@ -13,17 +13,17 @@ class CustomUserCreationForm(UserCreationForm):
         required=True,
         help_text="Employee's primary phone number"
     )
-    department = forms.ModelChoiceField(
+    form_department = forms.ModelChoiceField(
         queryset=Department.objects.filter(is_active=True),
         required=True,
         help_text="Department assignment"
     )
-    designation = forms.ModelChoiceField(
+    form_designation = forms.ModelChoiceField(
         queryset=Designation.objects.filter(is_active=True),
         required=True,
         help_text="Designation assignment"
     )
-    reporting_manager = forms.ModelChoiceField(
+    form_reporting_manager = forms.ModelChoiceField(
         queryset=None,
         required=False,
         help_text="Direct reporting manager"
@@ -32,14 +32,13 @@ class CustomUserCreationForm(UserCreationForm):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         from employees.models import Employee
-        self.fields['reporting_manager'].queryset = Employee.objects.filter(employment_status='active')
+        self.fields['form_reporting_manager'].queryset = Employee.objects.filter(employment_status='active')
 
     class Meta(UserCreationForm.Meta):
         model = User
         fields = UserCreationForm.Meta.fields + (
             "email", "first_name", "last_name", 
             "phone_number", "gender", "job_title",
-            "department", "designation", "reporting_manager"
         )
 
     def save(self, commit=True):
