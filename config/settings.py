@@ -133,7 +133,19 @@ from corsheaders.defaults import default_headers
 
 CORS_ALLOW_ALL_ORIGINS = True  # Allow all for testing
 CORS_ALLOW_CREDENTIALS = False  # JWT only
-CORS_ALLOW_HEADERS = list(default_headers) + ["Authorization"]
+
+# Allow all headers sent by frontend
+CORS_ALLOW_HEADERS = list(default_headers) + [
+    "Authorization",
+    "Accept",
+    "Content-Type",
+    "Referer",
+    "Sec-CH-UA",
+    "Sec-CH-UA-Mobile",
+    "Sec-CH-UA-Platform",
+    "User-Agent",
+]
+
 CORS_ALLOW_METHODS = ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"]
 CORS_URLS_REGEX = r'^/.*$'
 
@@ -162,6 +174,7 @@ else:
     CSRF_COOKIE_SAMESITE = 'Lax'
 
 APPEND_SLASH = True
+
 
 # -------------------- End CORS/CSRF --------------------
 
