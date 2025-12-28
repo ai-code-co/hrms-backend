@@ -24,6 +24,11 @@ ALLOWED_HOSTS = ['*']
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
+# Disable migrations for third-party apps we don't control
+MIGRATION_MODULES = {
+    'jet': None,
+}
+
 # -------------------- Installed Apps --------------------
 INSTALLED_APPS = [
     'jet', 
