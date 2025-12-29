@@ -37,6 +37,9 @@ def fix_migrations():
         'payroll',
         'inventory',
         'notifications',
+        'departments',
+        'organizations',
+        'jet',
     ]
     
     for app in apps_to_fake:
@@ -44,7 +47,7 @@ def fix_migrations():
         app_has_tables = any(app in table.lower() for table in existing_tables)
         
         if app_has_tables:
-            print(f"✅ Faking migrations for {app}...")
+            print(f"✅ Faking ALL migrations for {app}...")
             try:
                 call_command('migrate', app, '--fake', verbosity=0)
             except Exception as e:
@@ -52,10 +55,7 @@ def fix_migrations():
         else:
             print(f"⏭️  Skipping {app} (no tables)")
     
-    print("\n🎯 Running any remaining migrations...")
-    call_command('migrate', verbosity=1)
-    
-    print("\n✨ Migration state fixed!")
+    print("\n✨ Migration state fixed! Starting server...")
 
 if __name__ == "__main__":
     fix_migrations()
