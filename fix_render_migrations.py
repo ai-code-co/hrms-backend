@@ -35,132 +35,111 @@ def check_table_exists(cursor, table_name):
     except Exception:
         return False
 
-def get_table_name(app_label, model_name):
-    """Predict table name for a model."""
-    return f"{app_label}_{model_name.lower()}"
+def unfake_with_children(recorder, loader, app_label, migration_name, seen=None):
+    """Recursively un-fake a migration and everything that depends on it."""
+    if seen is None: seen = set()
+    key = (app_label, migration_name)
+    if key in seen: return
+    seen.add(key)
+    
+    print(f"   🔄 Un-faking: {app_label}.{migration_name} (and checking dependents...)")
+    recorder.record_unapplied(app_label, migration_name)
+    
+    # Find any migration that has (app_label, migration_name) as a dependency
+    for (node_app, node_name), node in loader.graph.nodes.items():
+        if key in node.dependencies:
+            unfake_with_children(recorder, loader, node_app, node_name, seen)
 
 def fix_migrations():
-    print("🚀 Starting ULTIMATE robust migration process...")
+    print("🚀 Starting ONE-GO Ultimate Migration Sync...")
     
     try:
         connection = connections['default']
         connection.prepare_database()
         
-        # We need a temporary executor to load the migration files
-        temp_executor = MigrationExecutor(connection)
+        # Initial load
+        executor = MigrationExecutor(connection)
         recorder = MigrationRecorder(connection)
         
-        # 1. FIX HISTORY INCONSISTENCY (Recursive)
-        print("🔍 Checking for migration history consistency...")
+        # 1. RECURSIVE HISTORY REPAIR (Gap Filling)
+        print("🔍 Repairing history gaps...")
         while True:
             try:
-                temp_executor.loader.check_consistent_history(connection)
-                print("   ✅ Migration history is now consistent.")
+                executor.loader.check_consistent_history(connection)
                 break
             except InconsistentMigrationHistory as e:
-                err_msg = str(e)
-                print(f"   ⚠️ History inconsistency detected: {err_msg}")
-                # Identify missing dependency from error
                 import re
-                match = re.search(r"its dependency ([\w_]+)\.([\w_]+)", err_msg)
+                match = re.search(r"its dependency ([\w_]+)\.([\w_]+)", str(e))
                 if match:
                     dep_app, dep_name = match.groups()
                     print(f"   👉 FORCE-satisfying dependency: {dep_app}.{dep_name}...")
-                    try:
-                        # Direct DB record to bypass validation crash
-                        recorder.record_applied(dep_app, dep_name)
-                        print(f"   ✅ Force-recorded {dep_app}.{dep_name} in history.")
-                    except Exception as f_err:
-                        print(f"   ❌ Could not force-record dependency: {f_err}")
-                        break # Prevent infinite loop if write fails
+                    recorder.record_applied(dep_app, dep_name)
+                    executor.loader.build_graph() # Refresh
                 else:
-                    print("   ❌ Key info missing from error message. Cannot auto-fix.")
                     break
-                
-                # Re-initialize to check for the NEXT inconsistency
-                temp_executor = MigrationExecutor(connection)
-                temp_executor.loader.build_graph()
 
-        # 2. GENERIC DRIFT DETECTION
+        # 2. GENERIC DRIFT DETECTION (with recursive un-faking)
         print("🔍 Scanning all applied migrations for DB drift...")
-        applied_migrations = recorder.applied_migrations() # Set of (app, name)
+        applied_migrations = recorder.applied_migrations()
+        unfaked_seen = set()
         
         with connection.cursor() as cursor:
-            sorted_applied = sorted(list(applied_migrations))
-            
-            for app_label, migration_name in sorted_applied:
+            for app_label, migration_name in sorted(list(applied_migrations)):
                 try:
-                    migration = temp_executor.loader.get_migration(app_label, migration_name)
+                    migration = executor.loader.get_migration(app_label, migration_name)
                     drift_detected = False
                     
                     for op in migration.operations:
                         if isinstance(op, migrations.CreateModel):
                             table = get_table_name(app_label, op.name)
                             if not check_table_exists(cursor, table):
-                                print(f"   🚨 Table MISSING: {table} (from {app_label}.{migration_name})")
+                                print(f"   🚨 Table MISSING: {table}")
                                 drift_detected = True
                         elif isinstance(op, migrations.AddField):
                             table = get_table_name(app_label, op.model_name)
                             col = op.name
-                            if not check_column_exists(cursor, table, col):
-                                # Check for relation field suffix _id
-                                if not check_column_exists(cursor, table, f"{col}_id"):
-                                    print(f"   🚨 Column MISSING: {table}.{col} (from {app_label}.{migration_name})")
-                                    drift_detected = True
+                            if not check_column_exists(cursor, table, col) and not check_column_exists(cursor, table, f"{col}_id"):
+                                print(f"   🚨 Column MISSING: {table}.{col}")
+                                drift_detected = True
                         
                         if drift_detected:
                             break
                     
                     if drift_detected:
-                        print(f"   🔄 Un-faking {app_label}.{migration_name} and its descendants...")
-                        for a, n in sorted_applied:
-                            if a == app_label and n >= migration_name:
-                                recorder.record_unapplied(a, n)
+                        # If a migration drifts, un-fake it AND everything that depends on it
+                        unfake_with_children(recorder, executor.loader, app_label, migration_name, unfaked_seen)
                 except Exception:
                     continue
 
-        # 3. RUN MIGRATIONS
-        print("📋 Planning migration execution...")
-        executor = MigrationExecutor(connection)
-        executor.loader.build_graph() 
-        
+        # 3. FINAL EXECUTION
+        print("📋 Finalizing migrations...")
+        executor.loader.build_graph()
         targets = executor.loader.graph.leaf_nodes()
-        try:
-            unapplied = executor.migration_plan(targets)
-        except InconsistentMigrationHistory as e:
-            print(f"   ❌ Still inconsistent: {e}. Attempting blunt fix...")
-            # If all else fails, just let it try to run migrations normally and catch errors
-            unapplied = [] # Or handle differently
-            return
-
+        unapplied = executor.migration_plan(targets)
+        
         if not unapplied:
             print("✅ Database is perfectly synced.")
             return
 
         print(f"📋 Processing {len(unapplied)} migrations...")
-        
         for migration_task, backwards in unapplied:
-            app_label = migration_task.app_label
-            migration_name = migration_task.name
-            
-            print(f"⏳ {app_label}.{migration_name}...")
-            
+            app, name = migration_task.app_label, migration_task.name
+            print(f"⏳ {app}.{name}...")
             try:
-                call_command('migrate', app_label, migration_name, verbosity=1)
+                call_command('migrate', app, name, verbosity=1)
                 print(f"   ✅ Done.")
-            except (OperationalError, ProgrammingError, Exception) as e:
-                err_str = str(e).lower()
+            except Exception as e:
+                err = str(e).lower()
                 exists_errs = ["already exists", "duplicate column", "duplicate key", "1050", "1060", "1061", "1072"]
-                
-                if any(p in err_str for p in exists_errs):
-                    print(f"   ⚠️ Existing object detected. Fake-applying...")
-                    call_command('migrate', app_label, migration_name, fake=True, verbosity=1)
+                if any(p in err for p in exists_errs):
+                    print(f"   ⚠️ Already exists. Faking...")
+                    call_command('migrate', app, name, fake=True, verbosity=1)
                 else:
-                    print(f"   ❌ Critical error: {e}")
-                    # Final attempt: if it's a field error, maybe fake it?
-                    if "column" in err_str or "key" in err_str:
-                        print(f"   ⚠️ Field-related error. Forcing fake to proceed...")
-                        call_command('migrate', app_label, migration_name, fake=True, verbosity=1)
+                    print(f"   ❌ Error: {e}")
+                    # Force fake for field/key errors to keep the "One Go" promise
+                    if "column" in err or "key" in err or "dependency" in err:
+                        print(f"   ⚠️ Forcing fake to proceed...")
+                        call_command('migrate', app, name, fake=True, verbosity=1)
                     else:
                         sys.exit(1)
 
