@@ -58,8 +58,8 @@ class UserProfileView(APIView):
             context={"request": request}
         )
         return Response(serializer.data)
-
-
+    
+ 
 # ------------------------------------------------------------------
 # FORGOT PASSWORD
 # ------------------------------------------------------------------

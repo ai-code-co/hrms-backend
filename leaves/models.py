@@ -50,7 +50,7 @@ class Leave(models.Model):
     )
     day_status = models.CharField(max_length=50, blank=True, null=True, help_text="e.g. First Half, Second Half")
     late_reason = models.TextField(blank=True, null=True)
-    doc_link = models.FileField(upload_to='leave_docs/', blank=True, null=True)
+    doc_link = models.CharField(max_length=500, blank=True, null=True, help_text="Path to document (e.g. hrms/uploads/abc123.jpg)")
     rejection_reason = models.TextField(blank=True, null=True)
     rh_dates = models.JSONField(default=list, blank=True, help_text="List of Restricted Holiday dates")
     
