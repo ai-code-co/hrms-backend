@@ -15,7 +15,46 @@ class LeaveSerializer(serializers.ModelSerializer):
             'leave_type', 'status', 'day_status', 'late_reason', 
             'doc_link', 'doc_link_url', 'rejection_reason', 'rh_dates', 'created_at'
         ]
-        read_only_fields = ['status', 'rejection_reason', 'created_at', 'doc_link_url']
+        read_only_fields = ['created_at', 'doc_link_url']
+    
+    def update(self, instance, validated_data):
+        """Override update to enforce permission checks on status changes"""
+        request = self.context.get('request')
+        new_status = validated_data.get('status')
+        
+        # If status is being changed
+        if new_status and new_status != instance.status:
+            user = request.user if request else None
+            
+            # Check permissions for status change
+            if new_status in ['Approved', 'Rejected']:
+                # Only admins can approve/reject
+                if not user or not user.is_staff:
+                    raise serializers.ValidationError({
+                        'status': 'Only administrators can approve or reject leaves.'
+                    })
+                
+                # If rejecting, rejection_reason is required
+                if new_status == 'Rejected' and not validated_data.get('rejection_reason'):
+                    raise serializers.ValidationError({
+                        'rejection_reason': 'Rejection reason is required when rejecting a leave.'
+                    })
+            
+            elif new_status == 'Cancelled':
+                # Users can cancel their own leaves
+                # Admins can cancel any leave
+                if not user or (not user.is_staff and instance.employee.user != user):
+                    raise serializers.ValidationError({
+                        'status': 'You can only cancel your own leaves.'
+                    })
+                
+                # Can only cancel pending or approved leaves
+                if instance.status not in ['Pending', 'Approved']:
+                    raise serializers.ValidationError({
+                        'status': f'Cannot cancel a leave that is already {instance.status}.'
+                    })
+        
+        return super().update(instance, validated_data)
     
     def get_doc_link_url(self, obj):
         """Construct full Cloudinary URL from stored path"""
@@ -37,6 +76,10 @@ class LeaveSerializer(serializers.ModelSerializer):
     
     def validate(self, data):
         """Validate leave application against balance"""
+        # Skip validation for updates (only validate on creation)
+        if self.instance is not None:
+            return data
+        
         # OLD CODE (Before 2025-12-22): Used request.user directly
         # employee = self.context['request'].user
         
