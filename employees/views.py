@@ -80,34 +80,44 @@ class EmployeeViewSet(viewsets.ModelViewSet):
         # Detail views (retrieve, me)
         user = self.request.user
 
-        # HR/Admin → full access
-        if user.is_staff or user.is_superuser:
+        # Superuser always gets admin serializer
+        if user.is_superuser:
             return EmployeeAdminDetailSerializer
 
-        # For retrieve action, check if viewing self or reportee
-        if self.action == "retrieve" and hasattr(user, "employee_profile"):
-            try:
-                # Get pk from URL kwargs
-                pk = self.kwargs.get('pk')
-                if pk:
-                    employee = user.employee_profile
-                    # Check if viewing self
-                    if str(employee.id) == str(pk):
-                        return EmployeeSelfDetailSerializer
-                    # Check if viewing reportee (need to query)
-                    from .models import Employee
-                    try:
-                        obj = Employee.objects.get(pk=pk)
-                        if obj.reporting_manager_id == employee.id:
-                            return EmployeeManagerDetailSerializer
-                    except Employee.DoesNotExist:
-                        pass
-            except:
-                pass
-
-        # Default for me action or fallback
+        # Check role-based access
         if hasattr(user, "employee_profile"):
+            employee = user.employee_profile
+            
+            # Admin/HR → full access
+            if employee.role and employee.role.can_view_all_employees:
+                return EmployeeAdminDetailSerializer
+
+            # For retrieve action, check if viewing self or reportee
+            if self.action == "retrieve":
+                try:
+                    pk = self.kwargs.get('pk')
+                    if pk:
+                        # Check if viewing self
+                        if str(employee.id) == str(pk):
+                            return EmployeeSelfDetailSerializer
+                        # Check if viewing reportee
+                        from .models import Employee
+                        try:
+                            obj = Employee.objects.get(pk=pk)
+                            if obj.reporting_manager_id == employee.id:
+                                return EmployeeManagerDetailSerializer
+                        except Employee.DoesNotExist:
+                            pass
+                except (KeyError, ValueError, TypeError) as e:
+                    # Log error if needed, but continue with default serializer
+                    pass
+
+            # Default for me action or fallback
             return EmployeeSelfDetailSerializer
+
+        # Backward compatibility: is_staff gets admin serializer
+        if user.is_staff:
+            return EmployeeAdminDetailSerializer
 
         # Manager → reportees (fallback)
         return EmployeeManagerDetailSerializer
@@ -119,52 +129,140 @@ class EmployeeViewSet(viewsets.ModelViewSet):
     def get_queryset(self):
         user = self.request.user
 
-        # HR/Admin → can list all employees
-        if user.is_staff or user.is_superuser:
+        # Superuser always has access
+        if user.is_superuser:
             return Employee.objects.all()
 
-        # Employee & Manager → NO list access
+        # Check role-based access
+        if hasattr(user, "employee_profile"):
+            employee = user.employee_profile
+            
+            # Admin/HR → can list all employees
+            if employee.role and employee.role.can_view_all_employees:
+                return Employee.objects.all()
+            
+            # Manager → can list subordinates
+            if employee.role and employee.role.can_view_subordinates:
+                return Employee.objects.filter(
+                    reporting_manager=employee,
+                    is_active=True
+                )
+
+        # Backward compatibility: is_staff can list all
+        if user.is_staff:
+            return Employee.objects.all()
+
+        # Employee & others → NO list access
         return Employee.objects.none()
     
 
     def perform_create(self, serializer):
-        if not self.request.user.is_staff:
-            raise PermissionDenied("Only HR/Admin can create employees.")
+        user = self.request.user
+        
+        # Superuser always allowed
+        if user.is_superuser:
+            serializer.save(
+                created_by=user,
+                updated_by=user
+            )
+            return
 
-        serializer.save(
-            created_by=self.request.user,
-            updated_by=self.request.user
-        )
+        # Check role-based permission
+        if hasattr(user, "employee_profile") and user.employee_profile.role:
+            if user.employee_profile.role.can_create_employees:
+                serializer.save(
+                    created_by=user,
+                    updated_by=user
+                )
+                return
+
+        # Backward compatibility: is_staff allowed
+        if user.is_staff:
+            serializer.save(
+                created_by=user,
+                updated_by=user
+            )
+            return
+
+        raise PermissionDenied("You do not have permission to create employees.")
     
 
     def perform_update(self, serializer):
-        if not self.request.user.is_staff:
-            raise PermissionDenied("Only HR/Admin can update employees.")
+        user = self.request.user
+        employee = serializer.instance
+        
+        # Superuser always allowed
+        if user.is_superuser:
+            serializer.save(updated_by=user)
+            return
 
-        serializer.save(updated_by=self.request.user)
+        # Check role-based permission
+        if hasattr(user, "employee_profile"):
+            user_employee = user.employee_profile
+            
+            # Admin/HR can edit anyone
+            if user_employee.role and user_employee.role.can_edit_all_employees:
+                serializer.save(updated_by=user)
+                return
+            
+            # Employee can edit self
+            if employee and employee.id == user_employee.id:
+                serializer.save(updated_by=user)
+                return
+
+        # Backward compatibility: is_staff allowed
+        if user.is_staff:
+            serializer.save(updated_by=user)
+            return
+
+        raise PermissionDenied("You do not have permission to update this employee.")
 
 
 
     def _can_edit_employee(self, request, employee):
-        # HR/Admin can edit anyone
-        if request.user.is_staff or request.user.is_superuser:
+        user = request.user
+        
+        # Superuser always allowed
+        if user.is_superuser:
             return True
 
-        # Employee can edit self only
-        if hasattr(request.user, "employee_profile"):
-            return employee.id == request.user.employee_profile.id
+        # Check role-based permission
+        if hasattr(user, "employee_profile"):
+            user_employee = user.employee_profile
+            
+            # Admin/HR can edit anyone
+            if user_employee.role and user_employee.role.can_edit_all_employees:
+                return True
+
+            # Employee can edit self only
+            if employee.id == user_employee.id:
+                return True
+
+        # Backward compatibility: is_staff allowed
+        if user.is_staff:
+            return True
 
         return False
 
 
     def destroy(self, request, *args, **kwargs):
         """Soft delete by marking is_active=False"""
-        if not request.user.is_staff:
-            raise PermissionDenied("Only HR/Admin can delete employees.")
+        user = request.user
+        
+        # Superuser always allowed
+        if user.is_superuser:
+            pass  # Allow
+        # Check role-based permission
+        elif hasattr(user, "employee_profile") and user.employee_profile.role:
+            if not user.employee_profile.role.can_delete_employees:
+                raise PermissionDenied("You do not have permission to delete employees.")
+        # Backward compatibility: is_staff allowed
+        elif not user.is_staff:
+            raise PermissionDenied("You do not have permission to delete employees.")
 
         employee = self.get_object()
         employee.is_active = False
-        employee.updated_by = request.user
+        employee.updated_by = user
         employee.save()
         return Response(status=status.HTTP_204_NO_CONTENT)
 
@@ -205,17 +303,27 @@ class EmployeeViewSet(viewsets.ModelViewSet):
         employee = self.get_object()
         user = request.user
 
-        # HR/Admin → allowed for all
-        if user.is_staff or user.is_superuser:
+        # Superuser always allowed
+        if user.is_superuser:
             pass
-
-        # Manager → only own subordinates
+        # Check role-based permission
         elif hasattr(user, "employee_profile"):
-            if employee.id != user.employee_profile.id:
-                raise PermissionDenied(
-                    "You can only view your own subordinates."
-                )
-
+            user_employee = user.employee_profile
+            
+            # Admin/HR → allowed for all
+            if user_employee.role and user_employee.role.can_view_all_employees:
+                pass
+            # Manager → only own subordinates
+            elif user_employee.role and user_employee.role.can_view_subordinates:
+                if employee.id != user_employee.id:
+                    raise PermissionDenied(
+                        "You can only view your own subordinates."
+                    )
+            else:
+                raise PermissionDenied("You are not allowed to view subordinates.")
+        # Backward compatibility: is_staff allowed
+        elif user.is_staff:
+            pass
         # Everyone else → forbidden
         else:
             raise PermissionDenied("You are not allowed to view subordinates.")

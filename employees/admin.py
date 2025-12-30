@@ -1,7 +1,7 @@
 from django.contrib import admin
 from django.core.exceptions import ValidationError
 from django import forms
-from .models import Employee, EmergencyContact, Education, WorkHistory
+from .models import Employee, EmergencyContact, Education, WorkHistory, Role
 from auth_app.models import User
 
 
@@ -54,11 +54,11 @@ class WorkHistoryInline(admin.TabularInline):
 class EmployeeAdmin(admin.ModelAdmin):
     form = EmployeeAdminForm
     list_display = (
-        'employee_id', 'get_full_name', 'email', 'department', 
+        'employee_id', 'get_full_name', 'email', 'role', 'department', 
         'designation', 'employment_status', 'is_active', 'joining_date'
     )
     list_filter = (
-        'employment_status', 'employee_type', 'department', 
+        'role', 'employment_status', 'employee_type', 'department', 
         'designation', 'is_active', 'joining_date', 'created_at'
     )
     search_fields = (
@@ -89,7 +89,7 @@ class EmployeeAdmin(admin.ModelAdmin):
         }),
         ('Professional Information', {
             'fields': (
-                'department', 'designation', 'reporting_manager',
+                'role', 'department', 'designation', 'reporting_manager',
                 'employee_type', 'employment_status', 'joining_date',
                 'probation_end_date', 'confirmation_date', 'work_location'
             )
@@ -171,3 +171,29 @@ class WorkHistoryAdmin(admin.ModelAdmin):
     list_filter = ('is_current', 'start_date', 'created_at')
     search_fields = ('company_name', 'job_title', 'employee__first_name', 'employee__last_name')
     readonly_fields = ('created_at', 'updated_at')
+
+
+@admin.register(Role)
+class RoleAdmin(admin.ModelAdmin):
+    list_display = ('name', 'is_active', 'created_at')
+    list_filter = ('is_active', 'created_at')
+    search_fields = ('name', 'description')
+    readonly_fields = ('created_at', 'updated_at')
+    
+    fieldsets = (
+        ('Basic Information', {
+            'fields': ('name', 'description', 'is_active')
+        }),
+        ('Permissions', {
+            'fields': (
+                'can_view_all_employees', 'can_create_employees',
+                'can_edit_all_employees', 'can_delete_employees',
+                'can_view_subordinates', 'can_approve_leave',
+                'can_approve_timesheet'
+            )
+        }),
+        ('System Information', {
+            'fields': ('created_at', 'updated_at'),
+            'classes': ('collapse',)
+        }),
+    )

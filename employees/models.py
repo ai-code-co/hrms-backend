@@ -5,6 +5,55 @@ from auth_app.models import User
 from organizations.models import Company
 
 
+class Role(models.Model):
+    """Role model for employee access control"""
+    name = models.CharField(
+        max_length=50,
+        unique=True,
+        help_text="Role name (e.g., Admin, HR, Manager, Employee)"
+    )
+    description = models.TextField(blank=True, help_text="Role description")
+    can_view_all_employees = models.BooleanField(
+        default=False,
+        help_text="Can view all employees"
+    )
+    can_create_employees = models.BooleanField(
+        default=False,
+        help_text="Can create new employees"
+    )
+    can_edit_all_employees = models.BooleanField(
+        default=False,
+        help_text="Can edit any employee"
+    )
+    can_delete_employees = models.BooleanField(
+        default=False,
+        help_text="Can delete employees"
+    )
+    can_view_subordinates = models.BooleanField(
+        default=False,
+        help_text="Can view subordinates"
+    )
+    can_approve_leave = models.BooleanField(
+        default=False,
+        help_text="Can approve leave requests"
+    )
+    can_approve_timesheet = models.BooleanField(
+        default=False,
+        help_text="Can approve timesheets"
+    )
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['name']
+        verbose_name = 'Role'
+        verbose_name_plural = 'Roles'
+
+    def __str__(self):
+        return self.name
+
+
 class Employee(models.Model):
     """Main Employee model"""
     company = models.ForeignKey(Company, on_delete=models.CASCADE, related_name='employees', null=True, blank=True)
@@ -99,6 +148,14 @@ class Employee(models.Model):
     postal_code = models.CharField(max_length=10, blank=True)
     
     # ========== PROFESSIONAL INFORMATION ==========
+    role = models.ForeignKey(
+        Role,
+        on_delete=models.PROTECT,
+        related_name='employees',
+        null=True,
+        blank=True,
+        help_text="Employee role for access control"
+    )
     department = models.ForeignKey(
         'departments.Department',
         on_delete=models.PROTECT,
@@ -189,28 +246,111 @@ class Employee(models.Model):
         """Property for full name"""
         return self.get_full_name()
 
+    def has_role(self, role_name):
+        """Check if employee has a specific role"""
+        return self.role and self.role.name.upper() == role_name.upper()
+
+    def is_admin(self):
+        """Check if employee is Admin"""
+        return self.has_role('Admin')
+
+    def is_hr(self):
+        """Check if employee is HR"""
+        return self.has_role('HR')
+
+    def is_manager(self):
+        """Check if employee is Manager"""
+        return self.has_role('Manager')
+
+    def is_employee(self):
+        """Check if employee is regular Employee"""
+        return self.has_role('Employee') or (self.role is None)
+
+    def can_view_all_employees(self):
+        """Check if employee can view all employees"""
+        if self.role:
+            return self.role.can_view_all_employees
+        return False
+
+    def can_create_employees(self):
+        """Check if employee can create employees"""
+        if self.role:
+            return self.role.can_create_employees
+        return False
+
+    def can_edit_all_employees(self):
+        """Check if employee can edit any employee"""
+        if self.role:
+            return self.role.can_edit_all_employees
+        return False
+
+    def can_delete_employees(self):
+        """Check if employee can delete employees"""
+        if self.role:
+            return self.role.can_delete_employees
+        return False
+
+    def can_view_subordinates(self):
+        """Check if employee can view subordinates"""
+        if self.role:
+            return self.role.can_view_subordinates
+        return False
+
     def save(self, *args, **kwargs):
-        """Auto-generate employee_id if not provided"""
+        """Auto-generate employee_id if not provided and assign default role"""
         if not self.employee_id:
             # Generate employee_id: EMP + year + auto-increment
+            # Handle race condition with retry logic
             from django.utils import timezone
+            from django.db import IntegrityError
+            import time
+            
             year = timezone.now().year
-            last_employee = Employee.objects.filter(
-                employee_id__startswith=f'EMP{year}'
-            ).order_by('-employee_id').first()
+            max_attempts = 10
             
-            if last_employee:
-                try:
-                    last_num = int(last_employee.employee_id[-4:])
-                    new_num = last_num + 1
-                except ValueError:
+            for attempt in range(max_attempts):
+                last_employee = Employee.objects.filter(
+                    employee_id__startswith=f'EMP{year}'
+                ).order_by('-employee_id').first()
+                
+                if last_employee:
+                    try:
+                        last_num = int(last_employee.employee_id[-4:])
+                        new_num = last_num + 1
+                    except ValueError:
+                        new_num = 1
+                else:
                     new_num = 1
-            else:
-                new_num = 1
-            
-            self.employee_id = f'EMP{year}{str(new_num).zfill(4)}'
+                
+                self.employee_id = f'EMP{year}{str(new_num).zfill(4)}'
+                
+                # Try to save, retry if IntegrityError (duplicate employee_id)
+                try:
+                    super().save(*args, **kwargs)
+                    break  # Success, exit retry loop
+                except IntegrityError:
+                    if attempt == max_attempts - 1:
+                        # Last attempt failed, re-raise the error
+                        raise
+                    # Small delay before retry to reduce collision probability
+                    time.sleep(0.1)
+                    continue
+        else:
+            # Employee ID already exists, just save
+            super().save(*args, **kwargs)
         
-        super().save(*args, **kwargs)
+        # Assign default Employee role if no role is set
+        # Do this after save to avoid issues with unsaved instances
+        if not self.role:
+            try:
+                default_role = Role.objects.get(name='Employee', is_active=True)
+                # Only update if role changed to avoid unnecessary save
+                if self.role_id != default_role.id:
+                    self.role = default_role
+                    self.save(update_fields=['role'])
+            except Role.DoesNotExist:
+                # If Employee role doesn't exist, leave as None
+                pass
 
 
 class EmergencyContact(models.Model):
@@ -349,6 +489,11 @@ class Education(models.Model):
         if self.end_date and self.start_date:
             if self.end_date < self.start_date:
                 raise ValidationError("End date cannot be before start date.")
+    
+    def save(self, *args, **kwargs):
+        """Override save to call clean() for validation"""
+        self.full_clean()
+        super().save(*args, **kwargs)
 
 
 class WorkHistory(models.Model):
@@ -409,3 +554,8 @@ class WorkHistory(models.Model):
         if self.end_date and self.start_date:
             if self.end_date < self.start_date:
                 raise ValidationError("End date cannot be before start date.")
+    
+    def save(self, *args, **kwargs):
+        """Override save to call clean() for validation"""
+        self.full_clean()
+        super().save(*args, **kwargs)
