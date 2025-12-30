@@ -116,7 +116,7 @@ def fix_migrations():
             except (OperationalError, ProgrammingError, Exception) as e:
                 err_str = str(e).lower()
                 # Patterns that indicate the table/column/index already exists
-                exists_errs = ["already exists", "duplicate column", "duplicate key", "1050", "1060", "1061"]
+                exists_errs = ["already exists", "duplicate column", "duplicate key", "1050", "1060", "1061", "1072"]
                 
                 if any(p in err_str for p in exists_errs):
                     print(f"   ⚠️ Existing object detected. Fake-applying...")
