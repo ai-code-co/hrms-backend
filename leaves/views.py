@@ -316,44 +316,5 @@ class LeaveViewSet(viewsets.ModelViewSet):
             pass
     
     def perform_update(self, serializer):
-        """Override to update balance when leave status changes"""
-        old_leave = self.get_object()
-        old_status = old_leave.status
-        
-        leave = serializer.save()
-        new_status = leave.status
-        
-        # Update balance if status changed
-        if old_status != new_status:
-            current_year = timezone.now().year
-            try:
-                balance = LeaveBalance.objects.get(
-                    employee=leave.employee,
-                    leave_type=leave.leave_type,
-                    year=current_year
-                )
-                
-                # If approved: move from pending to used
-                if new_status == 'Approved' and old_status == 'Pending':
-                    balance.pending -= leave.no_of_days
-                    balance.used += leave.no_of_days
-                    
-                    # Update RH if applicable
-                    if leave.rh_dates:
-                        balance.rh_used += len(leave.rh_dates)
-                
-                # If rejected: remove from pending
-                elif new_status == 'Rejected' and old_status == 'Pending':
-                    balance.pending -= leave.no_of_days
-                
-                # If cancelled: reverse the used
-                elif new_status == 'Cancelled' and old_status == 'Approved':
-                    balance.used -= leave.no_of_days
-                    if leave.rh_dates:
-                        balance.rh_used -= len(leave.rh_dates)
-                
-                balance.save()
-            except LeaveBalance.DoesNotExist:
-                pass
-
-
+        """Save leave updates - balance updates handled by signals"""
+        serializer.save()
