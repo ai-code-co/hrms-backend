@@ -1,16 +1,19 @@
 from rest_framework.permissions import BasePermission, SAFE_METHODS
 
 
-class EmployeeObjectPermission(BasePermission):
+class AttendanceObjectPermission(BasePermission):
     """
+    Attendance permissions:
+
     Employee  → self only
     Manager   → reportees (read-only)
     HR/Admin  → full access
     """
+
     def has_object_permission(self, request, view, obj):
         user = request.user
 
-        # HR/Admin → everything
+        # HR / Admin → everything
         if user.is_staff or user.is_superuser:
             return True
 
@@ -20,12 +23,12 @@ class EmployeeObjectPermission(BasePermission):
 
         employee = user.employee_profile
 
-        # Self access
-        if obj.id == employee.id:
+        # Employee → own attendance
+        if obj.employee_id == employee.id:
             return True
 
-        # Manager → view reportees only
+        # Manager → view reportees only (READ-ONLY)
         if request.method in SAFE_METHODS:
-            return obj.reporting_manager_id == employee.id
+            return obj.employee.reporting_manager_id == employee.id
 
         return False

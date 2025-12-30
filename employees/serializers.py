@@ -11,9 +11,10 @@ class EmergencyContactSerializer(serializers.ModelSerializer):
         fields = [
             'id', 'name', 'relationship', 'phone', 
             'alternate_phone', 'email', 'address', 
-            'is_primary', 'created_at', 'updated_at'
+            'is_primary', 'created_at', 'updated_at',
+            'created_by', 'updated_by'
         ]
-        read_only_fields = ['created_at', 'updated_at']
+        read_only_fields = ['created_at', 'updated_at', 'created_by', 'updated_by']
 
 
 class EducationSerializer(serializers.ModelSerializer):
@@ -25,9 +26,10 @@ class EducationSerializer(serializers.ModelSerializer):
             'id', 'level', 'degree', 'field_of_study', 
             'institution', 'start_date', 'end_date', 
             'is_completed', 'percentage', 'grade', 
-            'description', 'certificate', 'created_at', 'updated_at'
+            'description', 'certificate', 'created_at', 'updated_at',
+            'created_by', 'updated_by'
         ]
-        read_only_fields = ['created_at', 'updated_at']
+        read_only_fields = ['created_at', 'updated_at', 'created_by', 'updated_by']
 
 
 class WorkHistorySerializer(serializers.ModelSerializer):
@@ -40,9 +42,9 @@ class WorkHistorySerializer(serializers.ModelSerializer):
             'start_date', 'end_date', 'is_current', 
             'job_description', 'achievements', 'reason_for_leaving',
             'supervisor_name', 'supervisor_contact', 'salary',
-            'created_at', 'updated_at'
+            'created_at', 'updated_at', 'created_by', 'updated_by'
         ]
-        read_only_fields = ['created_at', 'updated_at']
+        read_only_fields = ['created_at', 'updated_at', 'created_by', 'updated_by']
 
 
 class EmployeeListSerializer(serializers.ModelSerializer):
@@ -148,4 +150,78 @@ class EmployeeCreateUpdateSerializer(serializers.ModelSerializer):
         if Employee.objects.filter(email=value).exists():
             raise serializers.ValidationError("An employee with this email already exists.")
         return value
+    
+    def validate_pan_number(self, value):
+        """Validate PAN format: ABCDE1234F"""
+        if value:
+            import re
+            value = value.upper().strip()
+            if not re.match(r'^[A-Z]{5}[0-9]{4}[A-Z]{1}$', value):
+                raise serializers.ValidationError("PAN must be in format: ABCDE1234F (e.g., ABCDE1234F)")
+        return value
+    
+    def validate_aadhar_number(self, value):
+        """Validate Aadhaar format: 12 digits"""
+        if value:
+            value = value.strip().replace(' ', '').replace('-', '')
+            if not value.isdigit() or len(value) != 12:
+                raise serializers.ValidationError("Aadhaar must be exactly 12 digits")
+        return value
+    
+    def validate_ifsc_code(self, value):
+        """Validate IFSC format: ABCD0123456"""
+        if value:
+            import re
+            value = value.upper().strip()
+            if not re.match(r'^[A-Z]{4}0[0-9A-Z]{6}$', value):
+                raise serializers.ValidationError("IFSC must be in format: ABCD0123456 (e.g., HDFC0001234)")
+        return value
 
+
+
+class EmployeeAdminDetailSerializer(EmployeeDetailSerializer):
+    """
+    HR/Admin → full employee data
+    """
+    class Meta(EmployeeDetailSerializer.Meta):
+        fields = EmployeeDetailSerializer.Meta.fields
+
+
+class EmployeeSelfDetailSerializer(EmployeeDetailSerializer):
+    """
+    Employee → own profile (NO sensitive data)
+    """
+    class Meta(EmployeeDetailSerializer.Meta):
+        fields = None
+        exclude = [
+            "pan_number",
+            "aadhar_number",
+            "passport_number",
+            "driving_license",
+            "bank_name",
+            "account_number",
+            "ifsc_code",
+            "account_holder_name",
+        ]
+
+
+class EmployeeManagerDetailSerializer(EmployeeDetailSerializer):
+    """
+    Manager → reportees (very limited data)
+    """
+    class Meta(EmployeeDetailSerializer.Meta):
+        fields = None
+        exclude = [
+            # Identity
+            "pan_number",
+            "aadhar_number",
+            "passport_number",
+            "driving_license",
+
+            # Financial
+            "bank_name",
+            "account_number",
+            "ifsc_code",
+            "account_holder_name",
+
+        ]
