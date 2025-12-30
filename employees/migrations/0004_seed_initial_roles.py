@@ -9,6 +9,8 @@ def create_initial_roles(apps, schema_editor):
     roles_data = [
         {
             'name': 'Admin',
+            'code': 'ADMIN',
+            'level': 100,
             'description': 'System Administrator with full access to all features',
             'can_view_all_employees': True,
             'can_create_employees': True,
@@ -21,6 +23,8 @@ def create_initial_roles(apps, schema_editor):
         },
         {
             'name': 'HR',
+            'code': 'HR',
+            'level': 80,
             'description': 'Human Resources with access to employee management',
             'can_view_all_employees': True,
             'can_create_employees': True,
@@ -33,6 +37,8 @@ def create_initial_roles(apps, schema_editor):
         },
         {
             'name': 'Manager',
+            'code': 'MANAGER',
+            'level': 50,
             'description': 'Manager with access to view and manage subordinates',
             'can_view_all_employees': False,
             'can_create_employees': False,
@@ -45,6 +51,8 @@ def create_initial_roles(apps, schema_editor):
         },
         {
             'name': 'Employee',
+            'code': 'EMPLOYEE',
+            'level': 10,
             'description': 'Regular employee with access to own profile only',
             'can_view_all_employees': False,
             'can_create_employees': False,
@@ -59,7 +67,7 @@ def create_initial_roles(apps, schema_editor):
     
     for role_data in roles_data:
         Role.objects.get_or_create(
-            name=role_data['name'],
+            code=role_data['code'],
             defaults=role_data
         )
 
