@@ -40,32 +40,49 @@ def fix_migrations():
     try:
         connection = connections['default']
         connection.prepare_database()
-        executor = MigrationExecutor(connection)
         recorder = MigrationRecorder(connection)
         
-        # 1. DRIFT DETECTION: Check if "applied" migrations are actually in the DB
-        print("🔍 Checking for migration drift (faked migrations missing actual columns)...")
-        applied_migrations = recorder.applied_migrations() # Set of (app, name)
+        # 1. DRIFT DETECTION
+        print("🔍 Checking for migration drift...")
+        applied_migrations = recorder.applied_migrations()
+        drift_found = False
+        
+        # We check specific critical migrations for missing state
+        drift_checks = [
+            ('employees', '0003_role_employee_role', 'role_id', 'employees_employee'),
+            ('employees', '0001_initial', None, 'employees_employee'), # None means check table existence
+        ]
         
         with connection.cursor() as cursor:
-            for (app, name) in list(applied_migrations):
-                # We specifically care about the ones reported missing by the user or likely to be faked
-                if app == 'employees' and name == '0003_role_employee_role':
-                    if not check_column_exists(cursor, 'employees_employee', 'role_id'):
-                        print(f"   🚨 Found drift! {app}.{name} is marked applied but 'role_id' column is MISSING.")
-                        print(f"   🔄 Un-faking {app}.{name} to allow re-application...")
+            for app, name, col, table in drift_checks:
+                if (app, name) in applied_migrations:
+                    is_missing = False
+                    if col:
+                        is_missing = not check_column_exists(cursor, table, col)
+                    else:
+                        is_missing = not check_table_exists(cursor, table)
+                    
+                    if is_missing:
+                        print(f"   🚨 Found drift! {app}.{name} is marked applied but DB state is missing.")
+                        # To safely re-run, we must un-fake this migration AND any that depend on it
+                        # For simplicity, we'll un-fake the target and any subsequent numbers in that app
+                        # but a more robust way is to just un-record it.
+                        print(f"   🔄 Un-faking {app}.{name}...")
                         recorder.record_unapplied(app, name)
-                
-                # You can add more critical checks here if needed
-                if app == 'employees' and name == '0001_initial':
-                    if not check_table_exists(cursor, 'employees_employee'):
-                        print(f"   🚨 Found drift! {app}.{name} marked applied but table 'employees_employee' is MISSING.")
-                        recorder.record_unapplied(app, name)
+                        drift_found = True
+                        
+                        # Also un-fake subsequent migrations for the same app to be safe
+                        # as they likely were part of the same faked deployment
+                        for (a, n) in list(applied_migrations):
+                            if a == app and n > name:
+                                print(f"   � Also un-faking dependent: {a}.{n}...")
+                                recorder.record_unapplied(a, n)
 
-        # Reload the graph after un-faking
-        executor.loader.build_graph()
+        # 2. RUN MIGRATIONS
+        # Important: Refresh the executor/loader AFTER un-faking
+        executor = MigrationExecutor(connection)
+        executor.loader.build_graph() 
         
-        # 2. APPLY PENDING MIGRATIONS
         targets = executor.loader.graph.leaf_nodes()
         unapplied = executor.migration_plan(targets)
         
