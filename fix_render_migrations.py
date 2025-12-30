@@ -62,16 +62,15 @@ def fix_migrations():
             match = re.search(r"its dependency ([\w_]+)\.([\w_]+)", err_msg)
             if match:
                 dep_app, dep_name = match.groups()
-                print(f"   👉 Attempting to fix dependency gap: {dep_app}.{dep_name}...")
+                print(f"   👉 FORCE-satisfying dependency: {dep_app}.{dep_name}...")
                 try:
-                    # We try to apply it. If it fails due to existing objects, the main loop handles faking.
-                    # But here we just try a simple 'migrate --fake' as a first pass if it's a known blocker.
-                    call_command('migrate', dep_app, dep_name, fake=True, verbosity=1)
-                    print(f"   ✅ Satisfaction applied for {dep_app}.{dep_name}")
+                    # Direct DB record is the only way to bypass the 'applied before dependency' crash
+                    recorder.record_applied(dep_app, dep_name)
+                    print(f"   ✅ Force-recorded {dep_app}.{dep_name} in history.")
                 except Exception as f_err:
-                    print(f"   ❌ Could not satisfy dependency: {f_err}")
+                    print(f"   ❌ Could not force-record dependency: {f_err}")
             
-            # Re-initialize after fix attempt
+            # Re-initialize after fix attempt to get a clean state
             temp_executor = MigrationExecutor(connection)
             temp_executor.loader.build_graph()
 
