@@ -50,29 +50,36 @@ def fix_migrations():
         temp_executor = MigrationExecutor(connection)
         recorder = MigrationRecorder(connection)
         
-        # 1. FIX HISTORY INCONSISTENCY
+        # 1. FIX HISTORY INCONSISTENCY (Recursive)
         print("🔍 Checking for migration history consistency...")
-        try:
-            temp_executor.loader.check_consistent_history(connection)
-        except InconsistentMigrationHistory as e:
-            err_msg = str(e)
-            print(f"   ⚠️ History inconsistency detected: {err_msg}")
-            # Identify missing dependency from error
-            import re
-            match = re.search(r"its dependency ([\w_]+)\.([\w_]+)", err_msg)
-            if match:
-                dep_app, dep_name = match.groups()
-                print(f"   👉 FORCE-satisfying dependency: {dep_app}.{dep_name}...")
-                try:
-                    # Direct DB record is the only way to bypass the 'applied before dependency' crash
-                    recorder.record_applied(dep_app, dep_name)
-                    print(f"   ✅ Force-recorded {dep_app}.{dep_name} in history.")
-                except Exception as f_err:
-                    print(f"   ❌ Could not force-record dependency: {f_err}")
-            
-            # Re-initialize after fix attempt to get a clean state
-            temp_executor = MigrationExecutor(connection)
-            temp_executor.loader.build_graph()
+        while True:
+            try:
+                temp_executor.loader.check_consistent_history(connection)
+                print("   ✅ Migration history is now consistent.")
+                break
+            except InconsistentMigrationHistory as e:
+                err_msg = str(e)
+                print(f"   ⚠️ History inconsistency detected: {err_msg}")
+                # Identify missing dependency from error
+                import re
+                match = re.search(r"its dependency ([\w_]+)\.([\w_]+)", err_msg)
+                if match:
+                    dep_app, dep_name = match.groups()
+                    print(f"   👉 FORCE-satisfying dependency: {dep_app}.{dep_name}...")
+                    try:
+                        # Direct DB record to bypass validation crash
+                        recorder.record_applied(dep_app, dep_name)
+                        print(f"   ✅ Force-recorded {dep_app}.{dep_name} in history.")
+                    except Exception as f_err:
+                        print(f"   ❌ Could not force-record dependency: {f_err}")
+                        break # Prevent infinite loop if write fails
+                else:
+                    print("   ❌ Key info missing from error message. Cannot auto-fix.")
+                    break
+                
+                # Re-initialize to check for the NEXT inconsistency
+                temp_executor = MigrationExecutor(connection)
+                temp_executor.loader.build_graph()
 
         # 2. GENERIC DRIFT DETECTION
         print("🔍 Scanning all applied migrations for DB drift...")
