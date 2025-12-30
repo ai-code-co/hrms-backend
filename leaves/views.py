@@ -25,14 +25,21 @@ class LeaveViewSet(viewsets.ModelViewSet):
     permission_classes = [permissions.IsAuthenticated]
 
     def get_queryset(self):
-        # OLD CODE: return Leave.objects.filter(employee=self.request.user)
-        # NEW CODE (2025-12-22): Filter by Employee, not User
+        """
+        Admins see all leaves.
+        Regular users see only their own leaves.
+        """
         user = self.request.user
+        
+        # Admins can see all leaves
+        if user.is_staff:
+            return Leave.objects.all()
         
         # Check if user has employee profile
         if not hasattr(user, 'employee_profile'):
             return Leave.objects.none()  # Return empty queryset
         
+        # Regular users see only their own leaves
         return Leave.objects.filter(employee=user.employee_profile)
 
     @swagger_auto_schema(
