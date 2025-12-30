@@ -2,18 +2,38 @@ from rest_framework import serializers
 from .models import Leave, LeaveQuota, LeaveBalance, RestrictedHoliday
 from django.utils import timezone
 from datetime import datetime
+import os
 
 class LeaveSerializer(serializers.ModelSerializer):
     no_of_days = serializers.DecimalField(max_digits=5, decimal_places=1, coerce_to_string=False, default=1.0)
+    doc_link_url = serializers.SerializerMethodField(read_only=True)
     
     class Meta:
         model = Leave
         fields = [
             'id', 'from_date', 'to_date', 'no_of_days', 'reason', 
             'leave_type', 'status', 'day_status', 'late_reason', 
-            'doc_link', 'rejection_reason', 'rh_dates', 'created_at'
+            'doc_link', 'doc_link_url', 'rejection_reason', 'rh_dates', 'created_at'
         ]
-        read_only_fields = ['status', 'rejection_reason', 'created_at']
+        read_only_fields = ['status', 'rejection_reason', 'created_at', 'doc_link_url']
+    
+    def get_doc_link_url(self, obj):
+        """Construct full Cloudinary URL from stored path"""
+        if not obj.doc_link:
+            return None
+        
+        # Get Cloudinary base URL from environment or use default
+        cloudinary_base = os.getenv('CLOUDINARY_BASE_URL', 'https://res.cloudinary.com/dhlyvqdoi/image/upload')
+        
+        # Construct full URL
+        # If path already has version (v1234567890), use as-is
+        # Otherwise, add a default version
+        if obj.doc_link.startswith('http'):
+            # Already a full URL, return as-is (backward compatibility)
+            return obj.doc_link
+        
+        # Construct URL from path
+        return f"{cloudinary_base}/{obj.doc_link}"
     
     def validate(self, data):
         """Validate leave application against balance"""
