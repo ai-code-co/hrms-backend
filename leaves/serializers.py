@@ -76,6 +76,10 @@ class LeaveSerializer(serializers.ModelSerializer):
     
     def validate(self, data):
         """Validate leave application against balance"""
+        # Skip validation for updates (only validate on creation)
+        if self.instance is not None:
+            return data
+        
         # OLD CODE (Before 2025-12-22): Used request.user directly
         # employee = self.context['request'].user
         
