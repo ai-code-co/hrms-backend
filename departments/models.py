@@ -12,7 +12,7 @@ class Department(models.Model):
         null=True,
         blank=True,
         related_name='managed_departments',
-        db_constraint=False,
+        
     )
     is_active = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
@@ -38,7 +38,7 @@ class Designation(models.Model):
         Department,
         on_delete=models.CASCADE,
         related_name='designations',
-        db_constraint=False,
+        
     )
     level = models.IntegerField(
         default=1,

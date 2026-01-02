@@ -33,7 +33,7 @@ class Leave(models.Model):
         on_delete=models.CASCADE,
         related_name='leaves',
         help_text="Employee applying for leave",
-        db_constraint=False,
+        
     )
     leave_type = models.CharField(
         max_length=50,
@@ -77,7 +77,7 @@ class LeaveQuota(models.Model):
         on_delete=models.CASCADE,
         related_name='leave_quotas',
         help_text="Employee for whom quota is configured",
-        db_constraint=False,
+        
     )
     leave_type = models.CharField(
         max_length=50,
@@ -131,7 +131,7 @@ class LeaveBalance(models.Model):
         on_delete=models.CASCADE,
         related_name='leave_balances',
         help_text="Employee whose balance is tracked",
-        db_constraint=False,
+        
     )
     leave_type = models.CharField(
         max_length=50,

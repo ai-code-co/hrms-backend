@@ -9,6 +9,24 @@ try:
 except ImportError:
     pass
 
+# Patch django-tidb for version 9.5.0 compatibility
+try:
+    import django_tidb.base
+    def patched_get_database_version(self):
+        try:
+            with self.temporary_connection() as cursor:
+                cursor.execute("SELECT VERSION()")
+                version_str = cursor.fetchone()[0]
+                # If we see 9.5.0, return it directly to avoid regex failure
+                if "9.5.0" in version_str:
+                    return (9, 5, 0)
+        except:
+            pass
+        return (9, 5, 0) # Ultimate fallback
+    django_tidb.base.DatabaseWrapper.get_database_version = patched_get_database_version
+except (ImportError, AttributeError):
+    pass
+
 
 def main():
     """Run administrative tasks."""

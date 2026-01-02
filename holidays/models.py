@@ -55,7 +55,7 @@ class Holiday(models.Model):
         blank=True,
         related_name='created_holidays',
         help_text="User who created this holiday",
-        db_constraint=False,
+        
     )
     updated_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,
@@ -64,7 +64,7 @@ class Holiday(models.Model):
         blank=True,
         related_name='updated_holidays',
         help_text="User who last updated this holiday",
-        db_constraint=False,
+        
     )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)

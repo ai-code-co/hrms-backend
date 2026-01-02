@@ -27,7 +27,7 @@ class Attendance(models.Model):
         Employee,
         on_delete=models.CASCADE,
         related_name='attendances',
-        db_constraint=False,
+        
     )
 
     date = models.DateField(db_index=True)
@@ -92,7 +92,7 @@ class Attendance(models.Model):
         null=True,
         blank=True,
         related_name='created_attendances',
-        db_constraint=False,
+        
     )
     updated_by = models.ForeignKey(
         User,
@@ -100,7 +100,7 @@ class Attendance(models.Model):
         null=True,
         blank=True,
         related_name='updated_attendances',
-        db_constraint=False,
+        
     )
 
     class Meta:
@@ -188,7 +188,7 @@ class Timesheet(models.Model):
         Employee,
         on_delete=models.CASCADE,
         related_name='timesheets',
-        db_constraint=False,
+        
     )
     start_date = models.DateField()
     end_date = models.DateField()
@@ -220,7 +220,7 @@ class ManualAttendanceRequest(models.Model):
         Employee,
         on_delete=models.CASCADE,
         related_name='manual_requests',
-        db_constraint=False,
+        
     )
     date = models.DateField()
     entry_time = models.TimeField()

@@ -56,7 +56,7 @@ class Role(models.Model):
 
 class Employee(models.Model):
     """Main Employee model"""
-    company = models.ForeignKey(Company, on_delete=models.CASCADE, related_name='employees', null=True, blank=True, db_constraint=False)
+    company = models.ForeignKey(Company, on_delete=models.CASCADE, related_name='employees', null=True, blank=True)
     
     # Employment Type Choices
     EMPLOYMENT_TYPE_CHOICES = [
@@ -155,19 +155,19 @@ class Employee(models.Model):
         null=True,
         blank=True,
         help_text="Employee role for access control",
-        db_constraint=False,
+        
     )
     department = models.ForeignKey(
         'departments.Department',
         on_delete=models.PROTECT,
         related_name='employees',
-        db_constraint=False,
+        
     )
     designation = models.ForeignKey(
         'departments.Designation',
         on_delete=models.PROTECT,
         related_name='employees',
-        db_constraint=False,
+        
     )
     reporting_manager = models.ForeignKey(
         'self',
@@ -176,7 +176,7 @@ class Employee(models.Model):
         blank=True,
         related_name='subordinates',
         help_text="Direct reporting manager",
-        db_constraint=False,    
+            
     )
     employee_type = models.CharField(
         max_length=20,
@@ -219,7 +219,7 @@ class Employee(models.Model):
         null=True,
         blank=True,
         related_name='created_employees',
-        db_constraint=False,
+        
     )
     updated_by = models.ForeignKey(
         User,
@@ -227,7 +227,7 @@ class Employee(models.Model):
         null=True,
         blank=True,
         related_name='updated_employees',
-        db_constraint=False,
+        
     )
 
     class Meta:
@@ -368,7 +368,7 @@ class EmergencyContact(models.Model):
         Employee,
         on_delete=models.CASCADE,
         related_name='emergency_contacts',
-        db_constraint=False,
+        
     )
     name = models.CharField(max_length=100)
     relationship = models.CharField(
@@ -391,7 +391,7 @@ class EmergencyContact(models.Model):
         null=True,
         blank=True,
         related_name='created_emergency_contacts',
-        db_constraint=False,
+        
     )
     updated_by = models.ForeignKey(
         User,
@@ -399,7 +399,7 @@ class EmergencyContact(models.Model):
         null=True,
         blank=True,
         related_name='updated_emergency_contacts',
-        db_constraint=False,
+        
     )
 
     class Meta:
@@ -437,7 +437,7 @@ class Education(models.Model):
         Employee,
         on_delete=models.CASCADE,
         related_name='educations',
-        db_constraint=False,
+        
     )
     level = models.CharField(
         max_length=20,
@@ -480,7 +480,7 @@ class Education(models.Model):
         null=True,
         blank=True,
         related_name='created_educations',
-        db_constraint=False,
+        
     )
     updated_by = models.ForeignKey(
         User,
@@ -488,7 +488,7 @@ class Education(models.Model):
         null=True,
         blank=True,
         related_name='updated_educations',
-        db_constraint=False,
+        
     )
 
     class Meta:
@@ -517,7 +517,7 @@ class WorkHistory(models.Model):
         Employee,
         on_delete=models.CASCADE,
         related_name='work_histories',
-        db_constraint=False,
+        
     )
     company_name = models.CharField(max_length=200)
     job_title = models.CharField(max_length=100)
@@ -548,7 +548,7 @@ class WorkHistory(models.Model):
         null=True,
         blank=True,
         related_name='created_work_histories',
-        db_constraint=False,
+        
     )
     updated_by = models.ForeignKey(
         User,
@@ -556,7 +556,7 @@ class WorkHistory(models.Model):
         null=True,
         blank=True,
         related_name='updated_work_histories',
-        db_constraint=False,
+        
     )
 
     class Meta:

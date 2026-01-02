@@ -29,7 +29,7 @@ class SalaryStructure(models.Model):
         on_delete=models.SET_NULL,
         null=True,
         blank=True,
-        db_constraint=False,
+        
     )
 
     class Meta:
@@ -58,7 +58,7 @@ class Payslip(models.Model):
         Employee,
         on_delete=models.CASCADE,
         related_name='payslips',
-        db_constraint=False,
+        
     )
     month = models.IntegerField()  # 1-12
     year = models.IntegerField()
@@ -97,7 +97,7 @@ class Payslip(models.Model):
         on_delete=models.SET_NULL,
         null=True,
         related_name='generated_payslips',
-        db_constraint=False,
+        
     )
 
     class Meta:
