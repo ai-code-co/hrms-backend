@@ -199,6 +199,12 @@ class LeaveViewSet(viewsets.ModelViewSet):
         # User: from_date, to_date, no_of_days, reason, leave_type, day_status...
         # Our model: Same names mostly.
         
+        user = request.user
+        if not hasattr(user, 'employee_profile'):
+            return Response({
+                "error": 1, 
+                "message": "User must have an employee profile to apply for leaves."
+            }, status=status.HTTP_400_BAD_REQUEST)
         serializer = self.get_serializer(data=data)
         if serializer.is_valid():
             try:
