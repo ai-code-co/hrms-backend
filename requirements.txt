@@ -28,4 +28,5 @@ urllib3==2.6.2
 whitenoise==6.11.0
 slack-sdk
 pymysql==1.1.1
+django-tidb
 cloudinary==1.44.1

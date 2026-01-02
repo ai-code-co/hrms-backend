@@ -187,7 +187,7 @@ STATICFILES_STORAGE = "whitenoise.storage.CompressedManifestStaticFilesStorage"
 # -------------------- Database --------------------
 DATABASES = {
     'default': {
-        'ENGINE': 'django.db.backends.mysql',
+        'ENGINE': 'django_tidb',
         'NAME': os.getenv("DB_NAME"),
         'USER': os.getenv("DB_USER"),
         'PASSWORD': os.getenv("DB_PASSWORD"),
@@ -201,8 +201,11 @@ DATABASES = {
 db_from_env = dj_database_url.config(conn_max_age=500)
 DATABASES['default'].update(db_from_env)
 
-# Only add MySQL options if using MySQL engine
-if DATABASES['default']['ENGINE'] == 'django.db.backends.mysql':
+# FORCE django_tidb engine (required for TiDB compatibility)
+DATABASES['default']['ENGINE'] = 'django_tidb'
+
+# Only add MySQL options if using MySQL/TiDB engine
+if DATABASES['default']['ENGINE'] in ['django.db.backends.mysql', 'django_tidb']:
     DATABASES['default'].setdefault('OPTIONS', {})
     DATABASES['default']['OPTIONS'].update({
         'charset': 'utf8mb4',
