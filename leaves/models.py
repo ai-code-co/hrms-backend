@@ -12,6 +12,7 @@ class Leave(models.Model):
         UNPAID_LEAVE = 'Unpaid Leave', _('Unpaid Leave')
         MATERNITY_LEAVE = 'Maternity Leave', _('Maternity Leave')
         PATERNITY_LEAVE = 'Paternity Leave', _('Paternity Leave')
+        RESTRICTED_HOLIDAY = 'Restricted Holiday', _('Restricted Holiday')
         OTHER = 'Other', _('Other')
 
     class Status(models.TextChoices):
@@ -34,6 +35,14 @@ class Leave(models.Model):
         related_name='leaves',
         help_text="Employee applying for leave",
         
+    )
+    restricted_holiday = models.ForeignKey(
+        'RestrictedHoliday',
+        on_delete=models.SET_NULL, # If admin deletes the RH, keep the leave history
+        null=True,
+        blank=True,
+        related_name='leave_applications',
+        help_text="Selected Restricted Holiday (if applicable)"
     )
     leave_type = models.CharField(
         max_length=50,

@@ -8,14 +8,16 @@ class LeaveSerializer(serializers.ModelSerializer):
     no_of_days = serializers.DecimalField(max_digits=5, decimal_places=1, coerce_to_string=False, default=1.0)
     doc_link_url = serializers.SerializerMethodField(read_only=True)
     
+    rh_id = serializers.IntegerField(write_only=True, required=False, allow_null=True)
+
     class Meta:
         model = Leave
         fields = [
             'id', 'from_date', 'to_date', 'no_of_days', 'reason', 
             'leave_type', 'status', 'day_status', 'late_reason', 
-            'doc_link', 'doc_link_url', 'rejection_reason', 'rh_dates', 'created_at'
+            'doc_link', 'doc_link_url', 'rejection_reason', 'rh_dates', 'created_at' ,'rh_id', 'restricted_holiday'
         ]
-        read_only_fields = ['created_at', 'doc_link_url']
+        read_only_fields = ['created_at', 'doc_link_url', 'restricted_holiday']
     
     def update(self, instance, validated_data):
         """Override update to enforce permission checks on status changes"""
@@ -96,7 +98,29 @@ class LeaveSerializer(serializers.ModelSerializer):
         leave_type = data.get('leave_type')
         no_of_days = data.get('no_of_days', 0)
         rh_dates = data.get('rh_dates', [])
+        from_date = data.get('from_date')
         
+        # NEW LOGIC: RH Validation
+        rh_id = data.get('rh_id')
+        
+        if leave_type == 'Restricted Holiday':
+            if not rh_id:
+                raise serializers.ValidationError({"rh_id": "Please select a Restricted Holiday."})
+            
+            try:
+                # Check if RH exists and is active
+                rh_obj = RestrictedHoliday.objects.get(id=rh_id, is_active=True)
+            except RestrictedHoliday.DoesNotExist:
+                raise serializers.ValidationError({"rh_id": "Invalid or inactive Restricted Holiday selected."})
+
+            # Validate that the leave date matches the RH date
+            if from_date != rh_obj.date:
+                 raise serializers.ValidationError({
+                     "from_date": f"Leave date ({from_date}) must match the Restricted Holiday date ({rh_obj.date})."
+                 })
+            
+            # Save the object in data temporarily to use in create()
+            data['restricted_holiday_obj'] = rh_obj
         # Get current year
         current_year = timezone.now().year
         
@@ -108,10 +132,19 @@ class LeaveSerializer(serializers.ModelSerializer):
                 year=current_year
             )
             
-            if balance.available < no_of_days:
-                raise serializers.ValidationError({
-                    'no_of_days': f'Insufficient leave balance. Available: {balance.available}, Requested: {no_of_days}'
-                })
+                # Balance Check for Restricted Holiday
+            if leave_type == 'Restricted Holiday':
+                # Assuming 1 RH application = 1 unit of RH balance
+                if balance.rh_available < 1:
+                     raise serializers.ValidationError({
+                        'non_field_errors': f'Insufficient Restricted Holiday balance. Available: {balance.rh_available}'
+                    })
+            else:
+                # Balance Check for Regular Leaves
+                if balance.available < no_of_days:
+                    raise serializers.ValidationError({
+                        'no_of_days': f'Insufficient leave balance. Available: {balance.available}, Requested: {no_of_days}'
+                    })
             
             # Check RH balance if RH dates provided
             if rh_dates and len(rh_dates) > balance.rh_available:
@@ -125,6 +158,23 @@ class LeaveSerializer(serializers.ModelSerializer):
             })
         
         return data
+
+    def create(self, validated_data):
+        """Custom create to handle the Restricted Holiday ForeignKey"""
+        
+        # Pop the helper object and the integer ID
+        rh_obj = validated_data.pop('restricted_holiday_obj', None)
+        validated_data.pop('rh_id', None)
+        
+        # Create the Leave instance
+        leave = Leave.objects.create(**validated_data)
+        
+        # If it was an RH application, link the ForeignKey
+        if rh_obj:
+            leave.restricted_holiday = rh_obj
+            leave.save()
+            
+        return leave
 
 
 class LeaveQuotaSerializer(serializers.ModelSerializer):

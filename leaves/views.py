@@ -199,25 +199,58 @@ class LeaveViewSet(viewsets.ModelViewSet):
         # User: from_date, to_date, no_of_days, reason, leave_type, day_status...
         # Our model: Same names mostly.
         
+        user = request.user
+        if not hasattr(user, 'employee_profile'):
+            return Response({
+                "error": 1, 
+                "message": "User must have an employee profile to apply for leaves."
+            }, status=status.HTTP_400_BAD_REQUEST)
         serializer = self.get_serializer(data=data)
         if serializer.is_valid():
-            # OLD CODE: leave = serializer.save(employee=self.request.user)
-            # NEW CODE (2025-12-22): Save with Employee
-            user = self.request.user
-            if not hasattr(user, 'employee_profile'):
+            try:
+                # 3. Check Balance Logic BEFORE saving
+                leave_type = serializer.validated_data.get('leave_type')
+                no_of_days = serializer.validated_data.get('no_of_days', 1)
+                rh_obj = serializer.validated_data.get('restricted_holiday_obj')
+
+                current_year = timezone.now().year
+
+                balance, created = LeaveBalance.objects.get_or_create(
+                    employee=user.employee_profile,
+                    year=current_year,
+                    leave_type=leave_type,
+                    defaults={'total_allocated': 0, 'rh_allocated': 2}
+                )
+
+                # Check RH Balance
+                if leave_type == 'Restricted Holiday':
+                    if balance.rh_available <= 0:
+                         return Response({"error": 1, "message": "No Restricted Holiday (RH) quota available."}, status=status.HTTP_400_BAD_REQUEST)
+                else:
+                    # Check Normal Balance
+                    if balance.available < no_of_days:
+                         return Response({"error": 1, "message": f"Insufficient {leave_type} balance."}, status=status.HTTP_400_BAD_REQUEST)
+
+                # 4. Save Leave (Status defaults to Pending)
+                leave = serializer.save(employee=user.employee_profile)
+
+                # 5. Update Balance (Mark as Pending)
+                # We update the 'pending' field. For RH, we treat it as 1 day pending.
+                balance.pending = float(balance.pending) + float(no_of_days)
+                balance.save()
+
                 return Response({
-                    "error": 1,
-                    "message": "User must have an employee profile to apply for leaves"
-                }, status=status.HTTP_400_BAD_REQUEST)
-            
-            leave = serializer.save(employee=user.employee_profile)
-            return Response({
-                "error": 0, 
-                "data": {
-                    "message": "Leave applied.",
-                    "leave_id": leave.id
-                }
-            }, status=status.HTTP_201_CREATED)
+                    "error": 0, 
+                    "data": {
+                        "message": "Leave applied.",
+                        "leave_id": leave.id,
+                        "status": leave.status
+                    }
+                }, status=status.HTTP_201_CREATED)
+
+            except Exception as e:
+                logger.error(f"Error applying leave: {str(e)}")
+                return Response({"error": 1, "message": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
         else:
             return Response({
                 "error": 1,
@@ -284,6 +317,13 @@ class LeaveViewSet(viewsets.ModelViewSet):
                 "available": float(balance.available),
                 "carried_forward": float(balance.carried_forward)
             }
+
+            if balance.leave_type == 'Restricted Holiday':
+                 balance_data[balance.leave_type]['rh_details'] = {
+                     "allocated": balance.rh_allocated,
+                     "used": balance.rh_used,
+                     "available": balance.rh_available
+                 }
         
         # Add RH balance (assuming one RH balance per employee)
         rh_balance = balances.filter(leave_type='Casual Leave').first()
