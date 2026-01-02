@@ -119,7 +119,8 @@ def populate_all_data():
              Education.objects.create(
                 employee=emp,
                 level='bachelor',
-                degree='B.Tech Computer Science',
+                degree='B.Tech',
+                field_of_study='Computer Science',
                 institution='Tech University',
                 start_date=join_date - datetime.timedelta(days=365*4),
                 end_date=join_date - datetime.timedelta(days=30),
@@ -317,12 +318,13 @@ def populate_all_data():
     if sample_emp:
         l_date = datetime.date.today() + datetime.timedelta(days=5)
         if not Leave.objects.filter(employee=sample_emp, from_date=l_date).exists():
+            from decimal import Decimal
             Leave.objects.create(
                 employee=sample_emp,
                 leave_type=Leave.LeaveType.CASUAL_LEAVE,
                 from_date=l_date,
                 to_date=l_date,
-                no_of_days=1.0,
+                no_of_days=Decimal('1.0'),
                 reason="Personal work",
                 status=Leave.Status.APPROVED
             )

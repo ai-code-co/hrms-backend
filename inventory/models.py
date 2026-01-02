@@ -81,7 +81,8 @@ class Device(models.Model):
         DeviceType,
         on_delete=models.PROTECT,
         related_name='devices',
-        help_text="Type/category of the device"
+        help_text="Type/category of the device",
+        
     )
     serial_number = models.CharField(
         max_length=100,
@@ -118,7 +119,8 @@ class Device(models.Model):
         null=True,
         blank=True,
         related_name='assigned_devices',
-        help_text="Currently assigned employee"
+        help_text="Currently assigned employee",
+        
     )
     purchase_date = models.DateField(
         null=True,
@@ -149,14 +151,17 @@ class Device(models.Model):
         on_delete=models.SET_NULL,
         null=True,
         blank=True,
-        related_name='created_devices'
+        related_name='created_devices',
+        
+
     )
     updated_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.SET_NULL,
         null=True,
         blank=True,
-        related_name='updated_devices'
+        related_name='updated_devices',
+        
     )
 
     class Meta:
@@ -206,18 +211,21 @@ class DeviceAssignment(models.Model):
     device = models.ForeignKey(
         Device,
         on_delete=models.CASCADE,
-        related_name='assignment_history'
+        related_name='assignment_history',
+        
     )
     employee = models.ForeignKey(
         Employee,
         on_delete=models.CASCADE,
-        related_name='device_assignments'
+        related_name='device_assignments',
+        
     )
     assigned_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.SET_NULL,
         null=True,
-        related_name='device_assignments_made'
+        related_name='device_assignments_made',
+        
     )
     assigned_date = models.DateTimeField(auto_now_add=True)
     returned_date = models.DateTimeField(
@@ -231,7 +239,8 @@ class DeviceAssignment(models.Model):
         null=True,
         blank=True,
         related_name='device_returns_received',
-        help_text="Admin who received the returned device"
+        help_text="Admin who received the returned device",
+        
     )
     condition_at_assignment = models.CharField(
         max_length=20,
