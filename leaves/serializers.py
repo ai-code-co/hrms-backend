@@ -116,10 +116,10 @@ class LeaveSerializer(serializers.ModelSerializer):
             except RestrictedHoliday.DoesNotExist:
                 raise serializers.ValidationError({"rh_id": "Invalid or inactive Restricted Holiday selected."})
 
-            # Validate that the leave date matches the RH date
-            if from_date != rh_obj.date:
+            # Validate that the leave date is not before the holiday date
+            if from_date < rh_obj.date:
                  raise serializers.ValidationError({
-                     "from_date": f"Leave date ({from_date}) must match the Restricted Holiday date ({rh_obj.date})."
+                     "from_date": f"Restricted Holiday leave cannot be taken before the actual holiday date ({rh_obj.date})."
                  })
             
             # Save the object in data temporarily to use in create()
