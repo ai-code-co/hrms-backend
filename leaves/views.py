@@ -268,7 +268,24 @@ class LeaveViewSet(viewsets.ModelViewSet):
             is_active=True,
             date__year=current_year
         )
+        
+        # 3. Exclude holidays already applied for (Pending or Approved)
+        applied_rh_ids = Leave.objects.filter(
+            employee=user.employee_profile,
+            leave_type='Restricted Holiday',
+            status__in=['Pending', 'Approved'],
+            restricted_holiday__isnull=False
+        ).values_list('restricted_holiday_id', flat=True)
+        
+        rh_list = rh_list.exclude(id__in=applied_rh_ids)
+        
         rh_serializer = RestrictedHolidaySerializer(rh_list, many=True)
+            
+        # 4. If no balance left, return empty list
+        if balance.rh_available <= 0:
+            rh_serializer_data = []
+        else:
+            rh_serializer_data = rh_serializer.data
             
         return Response({
             "error": 0,
@@ -278,7 +295,7 @@ class LeaveViewSet(viewsets.ModelViewSet):
                     "rh_used": balance.rh_used,
                     "rh_available": balance.rh_available
                 },
-                "holidays": rh_serializer.data
+                "holidays": rh_serializer_data
             }
         })
 
@@ -340,6 +357,7 @@ class LeaveViewSet(viewsets.ModelViewSet):
             balance_data['rh'] = {
                 "allocated": rh_balance.rh_allocated,
                 "used": rh_balance.rh_used,
+                "pending": rh_balance.rh_pending,
                 "available": rh_balance.rh_available
             }
         

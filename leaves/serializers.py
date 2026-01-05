@@ -201,7 +201,7 @@ class LeaveBalanceSerializer(serializers.ModelSerializer):
         fields = [
             'id', 'employee', 'employee_name', 'leave_type', 'year',
             'total_allocated', 'carried_forward', 'used', 'pending',
-            'available', 'rh_allocated', 'rh_used', 'rh_available'
+            'available', 'rh_allocated', 'rh_used', 'rh_pending', 'rh_available'
         ]
         read_only_fields = ['used', 'pending']
 
