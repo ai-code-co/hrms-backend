@@ -9,6 +9,7 @@ class LeaveSerializer(serializers.ModelSerializer):
     is_restricted = serializers.SerializerMethodField()
     doc_link_url = serializers.SerializerMethodField(read_only=True)
     rh_id = serializers.IntegerField(write_only=True, required=False, allow_null=True)
+    restricted_holiday_details = RestrictedHolidaySerializer(source='restricted_holiday', read_only=True)
 
     def get_is_restricted(self, obj):
         return obj.leave_type == Leave.LeaveType.RESTRICTED_HOLIDAY
@@ -18,9 +19,10 @@ class LeaveSerializer(serializers.ModelSerializer):
         fields = [
             'id', 'from_date', 'to_date', 'no_of_days', 'reason', 
             'leave_type', 'is_restricted', 'status', 'day_status', 'late_reason', 
-            'doc_link', 'doc_link_url', 'rejection_reason', 'rh_dates', 'created_at' ,'rh_id', 'restricted_holiday'
+            'doc_link', 'doc_link_url', 'rejection_reason', 'rh_dates', 'created_at' ,
+            'rh_id', 'restricted_holiday', 'restricted_holiday_details'
         ]
-        read_only_fields = ['created_at', 'doc_link_url', 'restricted_holiday', 'is_restricted']
+        read_only_fields = ['created_at', 'doc_link_url', 'restricted_holiday', 'is_restricted', 'restricted_holiday_details']
     
     def update(self, instance, validated_data):
         """Override update to enforce permission checks on status changes"""
