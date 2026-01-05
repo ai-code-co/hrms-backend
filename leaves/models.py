@@ -179,6 +179,7 @@ class LeaveBalance(models.Model):
     # RH Tracking
     rh_allocated = models.IntegerField(default=0, help_text="RH days allocated")
     rh_used = models.IntegerField(default=0, help_text="RH days used")
+    rh_pending = models.IntegerField(default=0, help_text="RH days pending approval")
     
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -194,8 +195,8 @@ class LeaveBalance(models.Model):
     
     @property
     def rh_available(self):
-        """Calculate available RH days"""
-        return self.rh_allocated - self.rh_used
+        """Calculate available RH days (accounts for both used and pending)"""
+        return self.rh_allocated - self.rh_used - self.rh_pending
 
     def __str__(self):
         return f"{self.employee} - {self.leave_type} ({self.year}): {self.available}/{self.total_allocated}"
