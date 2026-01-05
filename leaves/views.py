@@ -245,14 +245,15 @@ class LeaveViewSet(viewsets.ModelViewSet):
     @action(detail=False, methods=['get'], url_path='rh-balance')
     def get_rh_balance(self, request):
         """
-        Dedicated endpoint to get ONLY the remaining Restricted Holiday balance.
+        Endpoint to get the remaining Restricted Holiday balance AND 
+        the list of active Restricted Holidays for the year.
         """
         user = request.user
         if not hasattr(user, 'employee_profile'):
             return Response({"error": 1, "message": "Employee profile required."}, status=404)
             
         current_year = timezone.now().year
-        # RH quota is stored on the Casual Leave balance record
+        # 1. Get RH Balance (tracked on Casual Leave record)
         balance = LeaveBalance.objects.filter(
             employee=user.employee_profile,
             leave_type='Casual Leave',
@@ -262,12 +263,22 @@ class LeaveViewSet(viewsets.ModelViewSet):
         if not balance:
             return Response({"error": 1, "message": "No leaf balance found."}, status=404)
             
+        # 2. Get list of active Restricted Holidays for the year
+        rh_list = RestrictedHoliday.objects.filter(
+            is_active=True,
+            date__year=current_year
+        )
+        rh_serializer = RestrictedHolidaySerializer(rh_list, many=True)
+            
         return Response({
             "error": 0,
             "data": {
-                "rh_allocated": balance.rh_allocated,
-                "rh_used": balance.rh_used,
-                "rh_available": balance.rh_available
+                "balance": {
+                    "rh_allocated": balance.rh_allocated,
+                    "rh_used": balance.rh_used,
+                    "rh_available": balance.rh_available
+                },
+                "holidays": rh_serializer.data
             }
         })
 

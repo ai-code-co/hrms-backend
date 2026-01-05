@@ -59,17 +59,34 @@ This documentation provides a detailed guide to all Leave-related APIs, includin
 }
 ```
 
-### 2. Get Restricted Holiday (RH) Balance Only
+### 2. Get Restricted Holiday (RH) Balance & List
 **Endpoint:** `GET /api/leaves/rh-balance/`
+**Description:** Returns the remaining count AND the list of holidays the user can pick from.
 
 **Detailed Response:**
 ```json
 {
   "error": 0,
   "data": {
-    "rh_allocated": 2,
-    "rh_used": 1,
-    "rh_available": 1
+    "balance": {
+      "rh_allocated": 2,
+      "rh_used": 1,
+      "rh_available": 1
+    },
+    "holidays": [
+      {
+        "id": 1,
+        "date": "2026-01-14",
+        "name": "Makar Sankranti",
+        "description": "Harvest festival"
+      },
+      {
+        "id": 2,
+        "date": "2026-01-26",
+        "name": "Republic Day (Restricted)",
+        "description": "Optional holiday"
+      }
+    ]
   }
 }
 ```
@@ -138,7 +155,8 @@ This documentation provides a detailed guide to all Leave-related APIs, includin
   "to_date": "2026-01-12",
   "no_of_days": 1.0,
   "reason": "Personal work",
-  "leave_type": "Casual Leave"
+  "leave_type": "Casual Leave",
+  "doc_link": "hrms/uploads/medical_cert.jpg"  // (Optional) Path to your uploaded document
 }
 ```
 
@@ -150,9 +168,13 @@ This documentation provides a detailed guide to all Leave-related APIs, includin
   "no_of_days": 1.0,
   "reason": "Festival",
   "leave_type": "Restricted Holiday",
-  "rh_id": 1
+  "rh_id": 1,
+  "doc_link": null
 }
 ```
+
+**How to handle documents:**
+If you need to attach a document, first upload it via the upload API (standard Cloudinary upload) and then pass the resulting path or public ID in the **`doc_link`** field as a string.
 
 **Detailed Response:**
 ```json
