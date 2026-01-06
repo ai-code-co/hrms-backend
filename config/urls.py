@@ -53,6 +53,7 @@ urlpatterns = [
     path('api/leaves/', include('leaves.urls')),
     path('api/attendance/', include('attendance.urls')),
     path('api/payroll/', include('payroll.urls')),
+    path('api/dashboard/', include('dashboard.urls')),
     # path('api/', include('notifications.urls')), # Removed from here
     path('swagger<format>/', schema_view.without_ui(cache_timeout=0), name='schema-json'),
     path('swagger/', schema_view.with_ui('swagger', cache_timeout=0), name='schema-swagger-ui'),
