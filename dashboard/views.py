@@ -123,15 +123,13 @@ class DashboardSummaryView(APIView):
             for b in balances:
                 leave_breakdown.append({
                     "label": b.leave_type,
-                    "value": float(b.available),
-                    "color": self.get_color_for_leave(b.leave_type)
+                    "value": float(b.available)
                 })
             
             if casual_balance:
                  leave_breakdown.append({
                     "label": "Restricted Holiday",
-                    "value": float(casual_balance.rh_available),
-                    "color": "#FFC107"
+                    "value": float(casual_balance.rh_available)
                 })
 
             data["leave_chart"] = {
@@ -164,12 +162,3 @@ class DashboardSummaryView(APIView):
                 "error": 1,
                 "message": f"An error occurred: {str(e)}"
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-
-    def get_color_for_leave(self, leave_type):
-        colors = {
-            'Casual Leave': '#673AB7',
-            'Sick Leave': '#4CAF50',
-            'Earned Leave': '#2196F3',
-            'Restricted Holiday': '#FFC107'
-        }
-        return colors.get(leave_type, '#9E9E9E')
