@@ -675,18 +675,27 @@ class AttendanceViewSet(viewsets.ModelViewSet):
             "data": serializer.data
         })
     
+    @swagger_auto_schema(
+        operation_description="Get weekly timesheet for an employee.",
+        manual_parameters=[
+            openapi.Parameter('week_start', openapi.IN_QUERY, type=openapi.TYPE_STRING, description="Start date of the week (YYYY-MM-DD)"),
+            openapi.Parameter('user_id', openapi.IN_QUERY, type=openapi.TYPE_INTEGER, description="Optional: ID of the employee (Admins only)"),
+            openapi.Parameter('userid', openapi.IN_QUERY, type=openapi.TYPE_INTEGER, description="Legacy: ID of the employee (Admins only)"),
+        ],
+        responses={200: WeeklyTimesheetSerializer()}
+    )
     @action(detail=False, methods=['get'], url_path='weekly')
     def weekly_timesheet(self, request):
         """
         Get weekly timesheet data
-        GET /api/attendance/weekly/?week_start=2025-12-22&userid=838
+        GET /api/attendance/weekly/?week_start=2025-12-22&user_id=838
         Returns 7 days (Monday to Sunday) with attendance data
         """
         user = request.user
         
         # Get query parameters
         week_start = request.query_params.get('week_start')
-        userid = request.query_params.get('userid')
+        userid = request.query_params.get('user_id') or request.query_params.get('userid')
         
         # Validate week_start
         if not week_start:
