@@ -2,7 +2,7 @@ from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
 from .models import SalaryStructure, Payslip, PayrollConfig
-from .serializers import SalaryStructureSerializer, PayslipSerializer, SalaryOverviewSerializer, PayrollConfigSerializer
+from .serializers import SalaryStructureSerializer, PayslipSerializer, PayslipSummarySerializer, SalaryOverviewSerializer, PayrollConfigSerializer
 from .services import PayrollService
 from drf_yasg.utils import swagger_auto_schema
 from drf_yasg import openapi
@@ -19,6 +19,10 @@ class UserSalaryInfoView(APIView):
 
     @swagger_auto_schema(
         operation_description="Get current monthly salary preview and previous payslip history.",
+        manual_parameters=[
+            openapi.Parameter('month', openapi.IN_QUERY, description="Month (1-12)", type=openapi.TYPE_INTEGER),
+            openapi.Parameter('year', openapi.IN_QUERY, description="Year (e.g. 2025)", type=openapi.TYPE_INTEGER),
+        ],
         responses={200: openapi.Response(
             description="Detailed salary and payslip information",
             schema=openapi.Schema(
@@ -31,10 +35,10 @@ class UserSalaryInfoView(APIView):
                             "id": openapi.Schema(type=openapi.TYPE_STRING),
                             "name": openapi.Schema(type=openapi.TYPE_STRING),
                             "email": openapi.Schema(type=openapi.TYPE_STRING),
-                            "date_of_joining": openapi.Schema(type=openapi.TYPE_STRING, format='date'),
-                            "current_month_preview": openapi.Schema(type=openapi.TYPE_OBJECT),
-                            "salary_details": openapi.Schema(type=openapi.TYPE_ARRAY, items=openapi.Schema(type=openapi.TYPE_OBJECT)),
-                            "payslip_history": openapi.Schema(type=openapi.TYPE_ARRAY, items=openapi.Schema(type=openapi.TYPE_OBJECT)),
+                            "annual_ctc": openapi.Schema(type=openapi.TYPE_NUMBER),
+                            "bank_details": openapi.Schema(type=openapi.TYPE_OBJECT),
+                            "payslip_months": openapi.Schema(type=openapi.TYPE_ARRAY, items=openapi.Schema(type=openapi.TYPE_OBJECT)),
+                            "selected_payslip": openapi.Schema(type=openapi.TYPE_OBJECT),
                         }
                     )
                 }
@@ -44,25 +48,38 @@ class UserSalaryInfoView(APIView):
     def get(self, request):
         employee = get_object_or_404(Employee, user=request.user)
         
-        # Get historical salary structures
-        salary_structures = SalaryStructure.objects.filter(employee=employee).order_by('applicable_from')
+        # 1. Get all payslips (for the sidebar lookup) - Lightweight summaries
+        all_payslips = Payslip.objects.filter(employee=employee).order_by('-year', '-month')
         
-        # Get payslip history
-        payslips = Payslip.objects.filter(employee=employee).order_by('-year', '-month')
+        # 2. Filter logic for the detailed card (defaults to newest if not specified)
+        month = request.query_params.get('month')
+        year = request.query_params.get('year')
         
-        # Get current month preview
-        now = timezone.now()
-        salary_preview = PayrollService.calculate_monthly_salary(employee, now.month, now.year)
-        
+        if month and year:
+            selected_payslip = all_payslips.filter(month=int(month), year=int(year)).first()
+        else:
+            selected_payslip = all_payslips.first()
+            
+        # 3. Calculate Annual CTC (Constant for the user/profile)
+        # We fetch the latest active structure to determine current annual package
+        latest_structure = employee.salary_structures.filter(is_active=True).order_by('-applicable_from').first()
+        annual_ctc = float(latest_structure.total_earnings * 12) if latest_structure else 0
+            
         data = {
             "id": str(employee.id),
             "name": employee.get_full_name(),
             "email": employee.email,
-            "date_of_joining": employee.joining_date,
-            "type": "employee",
-            "salary_details": SalaryStructureSerializer(salary_structures, many=True).data,
-            "holding_details": [],
-            "payslip_history": PayslipSerializer(payslips, many=True).data
+            "annual_ctc": annual_ctc,
+            "bank_details": {
+                "bank_name": employee.bank_name,
+                "account_number": employee.account_number,
+                "ifsc_code": employee.ifsc_code,
+                "masked_account_number": f"**** {employee.account_number[-4:]}" if employee.account_number else ""
+            },
+            # Sidebar list (Summary data)
+            "payslip_months": PayslipSummarySerializer(all_payslips, many=True).data,
+            # Main detail card (Full data)
+            "selected_payslip": PayslipSerializer(selected_payslip).data if selected_payslip else None
         }
         
         return Response({
