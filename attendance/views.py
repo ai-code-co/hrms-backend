@@ -26,14 +26,15 @@ from .serializers import (
     CheckOutSerializer,
     MonthlyAttendanceSerializer,
     WeeklyTimesheetSubmitSerializer,
-    WeeklyTimesheetSerializer
+    WeeklyTimesheetSerializer,
+    UpdateSessionSerializer
 )
 from holidays.models import Holiday
 from employees.models import Employee
 from .services import AttendanceCalculationService
 from django.conf import settings
 from .constants import DATE_FORMAT, TIME_12HR_FORMAT
-from .serializers import format_datetime_to_iso
+from .serializers import format_datetime_to_iso, format_seconds_to_hms
 
 
 class AttendanceViewSet(viewsets.ModelViewSet):
@@ -675,18 +676,27 @@ class AttendanceViewSet(viewsets.ModelViewSet):
             "data": serializer.data
         })
     
+    @swagger_auto_schema(
+        operation_description="Get weekly timesheet for an employee.",
+        manual_parameters=[
+            openapi.Parameter('week_start', openapi.IN_QUERY, type=openapi.TYPE_STRING, description="Start date of the week (YYYY-MM-DD)"),
+            openapi.Parameter('user_id', openapi.IN_QUERY, type=openapi.TYPE_INTEGER, description="Optional: ID of the employee (Admins only)"),
+            openapi.Parameter('userid', openapi.IN_QUERY, type=openapi.TYPE_INTEGER, description="Legacy: ID of the employee (Admins only)"),
+        ],
+        responses={200: WeeklyTimesheetSerializer()}
+    )
     @action(detail=False, methods=['get'], url_path='weekly')
     def weekly_timesheet(self, request):
         """
         Get weekly timesheet data
-        GET /api/attendance/weekly/?week_start=2025-12-22&userid=838
+        GET /api/attendance/weekly/?week_start=2025-12-22&user_id=838
         Returns 7 days (Monday to Sunday) with attendance data
         """
         user = request.user
         
         # Get query parameters
         week_start = request.query_params.get('week_start')
-        userid = request.query_params.get('userid')
+        userid = request.query_params.get('user_id') or request.query_params.get('userid')
         
         # Validate week_start
         if not week_start:
@@ -755,11 +765,11 @@ class AttendanceViewSet(viewsets.ModelViewSet):
         
         return Response(response_data, status=status.HTTP_200_OK)
     
-    @action(detail=False, methods=['post'], url_path='weekly/submit')
+    @action(detail=False, methods=['post'], url_path='submit-timesheet')
     def submit_weekly_timesheet(self, request):
         """
         Submit timesheet entry for a specific day
-        POST /api/attendance/weekly/submit/
+        POST /api/attendance/submit-timesheet/
         Body (multipart/form-data): {
             "date": "2025-12-24",
             "total_time": "8",
@@ -841,22 +851,9 @@ class AttendanceViewSet(viewsets.ModelViewSet):
                     updated_by=user
                 )
             
-            # Handle file upload with versioning
-            if tracker_screenshot:
-                if hasattr(attendance, 'tracker_screenshot'):
-                    try:
-                        # Generate unique filename with timestamp
-                        import os
-                        from django.utils import timezone
-                        timestamp = int(timezone.now().timestamp())
-                        filename = getattr(tracker_screenshot, 'name', 'screenshot.png')
-                        name, ext = os.path.splitext(filename)
-                        unique_filename = f"{timestamp}_{employee.id}_{name}{ext}"
-                        attendance.tracker_screenshot.save(unique_filename, tracker_screenshot, save=False)
-                    except (AttributeError, ValueError, Exception) as e:
-                        # If file upload fails, continue without the screenshot
-                        # Log the error but don't fail the entire request
-                        pass
+            # Handle tracker screenshot (Cloudinary public ID/path)
+            if tracker_screenshot and hasattr(attendance, 'tracker_screenshot'):
+                attendance.tracker_screenshot = tracker_screenshot
             
             # Set home times
             home_in_time = None
@@ -905,36 +902,35 @@ class AttendanceViewSet(viewsets.ModelViewSet):
             attendance.text = comments
             attendance.day_text = comments
             attendance.seconds_actual_worked_time = total_time_seconds
-            
-            # Set timesheet fields only if they exist in the model
-            if hasattr(attendance, 'timesheet_submitted_at'):
-                attendance.timesheet_submitted_at = timezone.now()
+            attendance.timesheet_submitted_at = timezone.now()
             
             # Set status: auto-approve non-WFH, PENDING for WFH
-            if hasattr(attendance, 'timesheet_status'):
-                if is_working_from_home:
-                    attendance.timesheet_status = 'PENDING'
-                else:
-                    attendance.timesheet_status = 'APPROVED'
-                    if hasattr(attendance, 'timesheet_approved_by'):
-                        attendance.timesheet_approved_by = user
-                    if hasattr(attendance, 'timesheet_approved_at'):
-                        attendance.timesheet_approved_at = timezone.now()
+            if is_working_from_home:
+                attendance.timesheet_status = 'PENDING'
+            else:
+                attendance.timesheet_status = 'APPROVED'
+                attendance.timesheet_approved_by = user
+                attendance.timesheet_approved_at = timezone.now()
             
             attendance.updated_by = user
             self._determine_day_type(attendance)
-            attendance.save()
+            
+            from django.core.exceptions import ValidationError as DjangoValidationError
+            try:
+                attendance.save()
+            except DjangoValidationError as e:
+                return Response({
+                    "error": 1,
+                    "message": "Validation failed: " + str(e)
+                }, status=status.HTTP_400_BAD_REQUEST)
+            except Exception as e:
+                return Response({
+                    "error": 1,
+                    "message": "An error occurred: " + str(e)
+                }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
         
         # Format response
-        status_display = ""
-        if hasattr(attendance, 'timesheet_status') and hasattr(attendance, 'get_timesheet_status_display'):
-            try:
-                status_display = attendance.get_timesheet_status_display()
-            except (AttributeError, ValueError):
-                status_display = getattr(attendance, 'timesheet_status', '')
-        elif is_working_from_home:
-            # If timesheet_status field doesn't exist but it's WFH, show "Pending"
-            status_display = "Pending"
+        status_display = attendance.get_timesheet_status_display()
         
         # Determine if approval is required
         requires_approval = is_working_from_home and not (user.is_staff or user.is_superuser)
@@ -947,10 +943,128 @@ class AttendanceViewSet(viewsets.ModelViewSet):
                 "status": status_display,
                 "date": attendance.date.strftime(DATE_FORMAT),
                 "is_working_from_home": attendance.is_working_from_home,
-                "auto_approved": not is_working_from_home and hasattr(attendance, 'timesheet_status'),
+                "auto_approved": not is_working_from_home,
                 "requires_approval": requires_approval
             }
         }, status=status.HTTP_201_CREATED)
+
+    @swagger_auto_schema(
+        operation_description="Manually create or update attendance for a specific day.",
+        request_body=UpdateSessionSerializer,
+        responses={200: "Success Response"}
+    )
+    @action(detail=False, methods=['post'], url_path='manual-update')
+    def manual_update(self, request):
+        """
+        Manually create or update attendance for a specific day.
+        POST /api/attendance/manual-update/
+        """
+        user = request.user
+        
+        if not hasattr(user, 'employee_profile'):
+            return Response({
+                "error": 1,
+                "message": "User must have an employee profile"
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        employee = user.employee_profile
+        serializer = UpdateSessionSerializer(data=request.data)
+        
+        if not serializer.is_valid():
+            return Response({
+                "error": 1,
+                "message": "Validation failed",
+                "errors": serializer.errors
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        # Extract data
+        date = serializer.validated_data['date']
+        in_time_str = serializer.validated_data['in_time']
+        out_time_str = serializer.validated_data['out_time']
+        is_working_from_home = serializer.validated_data.get('is_working_from_home', False)
+        
+        # Parse times
+        try:
+            in_time = serializer.parse_time_string(in_time_str, date)
+            out_time = serializer.parse_time_string(out_time_str, date)
+        except Exception as e:
+            return Response({
+                "error": 1,
+                "message": str(e)
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        if out_time < in_time:
+            return Response({
+                "error": 1,
+                "message": "Out time cannot be before in time"
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        # Calculate worked seconds
+        worked_seconds = int((out_time - in_time).total_seconds())
+        
+        with transaction.atomic():
+            # Create or update attendance record
+            attendance, created = Attendance.objects.get_or_create(
+                employee=employee,
+                date=date,
+                defaults={
+                    'office_working_hours': getattr(settings, 'ATTENDANCE_DEFAULT_WORKING_HOURS', '09:00'),
+                    'orignal_total_time': getattr(settings, 'ATTENDANCE_DEFAULT_TOTAL_TIME_SECONDS', 32400),
+                    'created_by': user,
+                    'updated_by': user
+                }
+            )
+            
+            # Update times
+            if is_working_from_home:
+                attendance.home_in_time = in_time
+                attendance.home_out_time = out_time
+                attendance.is_working_from_home = True
+            else:
+                attendance.office_in_time = in_time
+                attendance.office_out_time = out_time
+                attendance.is_working_from_home = False
+            
+            # Update general fields
+            attendance.in_time = in_time
+            attendance.out_time = out_time
+            attendance.seconds_actual_worked_time = worked_seconds
+            attendance.updated_by = user
+            
+            # Auto-approve manual updates if they are not WFH or if submitted by admin
+            if hasattr(attendance, 'timesheet_status'):
+                if is_working_from_home and not user.is_staff:
+                    attendance.timesheet_status = 'PENDING'
+                else:
+                    attendance.timesheet_status = 'APPROVED'
+                    if hasattr(attendance, 'timesheet_approved_by'):
+                        attendance.timesheet_approved_by = user
+                    if hasattr(attendance, 'timesheet_approved_at'):
+                        attendance.timesheet_approved_at = timezone.now()
+            
+            self._determine_day_type(attendance)
+            attendance.save()
+        
+        # Calculate progress for response
+        total_goal = attendance.orignal_total_time or 32400
+        progress = (worked_seconds / total_goal) * 100
+        goal_status = "Goal Reached" if worked_seconds >= total_goal else "Goal Pending"
+        
+        return Response({
+            "error": 0,
+            "message": "Attendance updated successfully",
+            "data": {
+                "id": attendance.id,
+                "full_date": attendance.date.strftime("%Y-%m-%d"),
+                "total_time": format_seconds_to_hms(worked_seconds),
+                "goal_status": goal_status,
+                "progress_percentage": min(round(progress, 2), 100.0),
+                "in_time": format_datetime_to_iso(in_time),
+                "out_time": format_datetime_to_iso(out_time),
+                "day_type": attendance.day_type,
+                "is_working_from_home": attendance.is_working_from_home
+            }
+        }, status=status.HTTP_200_OK)
     
     @action(detail=True, methods=['post', 'patch'], url_path='approve', permission_classes=[IsAdminUser])
     def approve_timesheet(self, request, pk=None):

@@ -39,8 +39,8 @@ class IsAdminManagerOrHR(BasePermission):
             return True
         
         # Check employee designation level
-        if hasattr(user, 'employee') and user.employee:
-            employee = user.employee
+        if hasattr(user, 'employee_profile') and user.employee_profile:
+            employee = user.employee_profile
             if employee.designation and employee.designation.level:
                 # Level 1-3 are Admin/Director/Manager/HR
                 return employee.designation.level <= 3
@@ -68,8 +68,8 @@ class CanViewAllDevices(BasePermission):
             return True
         
         # Check employee designation level
-        if hasattr(user, 'employee') and user.employee:
-            employee = user.employee
+        if hasattr(user, 'employee_profile') and user.employee_profile:
+            employee = user.employee_profile
             if employee.designation and employee.designation.level:
                 # Level 1-3 can view all devices
                 return employee.designation.level <= 3
@@ -93,8 +93,8 @@ class CanManageDevices(BasePermission):
         if user.is_superuser or user.is_staff:
             return True
         
-        if hasattr(user, 'employee') and user.employee:
-            employee = user.employee
+        if hasattr(user, 'employee_profile') and user.employee_profile:
+            employee = user.employee_profile
             if employee.designation and employee.designation.level:
                 return employee.designation.level <= 3
         
@@ -116,8 +116,8 @@ class CanAssignDevices(BasePermission):
         if user.is_superuser or user.is_staff:
             return True
         
-        if hasattr(user, 'employee') and user.employee:
-            employee = user.employee
+        if hasattr(user, 'employee_profile') and user.employee_profile:
+            employee = user.employee_profile
             if employee.designation and employee.designation.level:
                 return employee.designation.level <= 3
         

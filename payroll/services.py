@@ -100,7 +100,7 @@ class PayrollService:
         balance_obj = LeaveBalance.objects.filter(employee=employee, year=year).first()
         if balance_obj:
             total_allocated = balance_obj.total_allocated
-            remaining_balance = balance_obj.remaining
+            remaining_balance = balance_obj.available
 
         return {
             "month": month,
