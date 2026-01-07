@@ -1,6 +1,37 @@
 from rest_framework import serializers
 from .models import SalaryStructure, Payslip, PayrollConfig
 
+class PayslipSummarySerializer(serializers.ModelSerializer):
+    month_name = serializers.SerializerMethodField()
+    formatted_date = serializers.SerializerMethodField()
+    statement_reference = serializers.SerializerMethodField()
+    status = serializers.SerializerMethodField()
+    total_net_salary = serializers.CharField(source='net_salary')
+
+    class Meta:
+        model = Payslip
+        fields = [
+            'id', 'month', 'year', 'month_name', 'formatted_date', 
+            'status', 'total_net_salary', 'statement_reference'
+        ]
+
+    def get_status(self, obj):
+        return obj.status.capitalize()
+
+    def get_month_name(self, obj):
+        import calendar
+        return calendar.month_name[obj.month]
+
+    def get_formatted_date(self, obj):
+        import calendar
+        from datetime import date
+        # Return the last day of the month for display
+        last_day = calendar.monthrange(obj.year, obj.month)[1]
+        return date(obj.year, obj.month, last_day).strftime("%b %d, %Y")
+
+    def get_statement_reference(self, obj):
+        return f"PAY-{str(obj.year)[2:]}-{obj.month:02d}-{obj.id:03d}"
+
 class SalaryStructureSerializer(serializers.ModelSerializer):
     # Mapping to match the user's specific naming in the prototype
     Special_Allowance = serializers.SerializerMethodField()
@@ -84,23 +115,68 @@ class PayslipSerializer(serializers.ModelSerializer):
     total_taxes = serializers.CharField()
     total_net_salary = serializers.CharField(source='net_salary')
     
-    month = serializers.SerializerMethodField()
-    year = serializers.CharField()
-
+    month_name = serializers.SerializerMethodField()
+    statement_reference = serializers.SerializerMethodField()
+    bank_details = serializers.SerializerMethodField()
+    earnings_breakdown = serializers.SerializerMethodField()
+    deductions_breakdown = serializers.SerializerMethodField()
+    
     class Meta:
         model = Payslip
         fields = [
-            'id', 'user_Id', 'month', 'year', 'total_leave_taken', 'leave_balance',
+            'id', 'user_Id', 'month', 'year', 'month_name', 'total_leave_taken', 'leave_balance',
             'allocated_leaves', 'paid_leaves', 'unpaid_leaves', 'final_leave_balance',
             'status', 'misc_deduction_2', 'bonus', 'total_working_days',
-            'total_earnings', 'total_deductions', 'total_taxes', 'total_net_salary'
+            'total_earnings', 'total_deductions', 'total_taxes', 'total_net_salary',
+            'statement_reference', 'bank_details', 'earnings_breakdown', 'deductions_breakdown'
         ]
 
     def get_status(self, obj):
-        return "0" if obj.status in ['published', 'paid'] else "1"
+        # UI expects "Paid" or similar, but the payload has a code or status string
+        return obj.status.capitalize()
 
     def get_month(self, obj):
         return f"{obj.month:02d}"
+
+    def get_month_name(self, obj):
+        import calendar
+        return calendar.month_name[obj.month]
+
+    def get_statement_reference(self, obj):
+        # Format: PAY-YY-MM-XXX
+        return f"PAY-{str(obj.year)[2:]}-{obj.month:02d}-{obj.id:03d}"
+
+    def get_bank_details(self, obj):
+        employee = obj.employee
+        return {
+            "bank_name": employee.bank_name,
+            "account_number": employee.account_number,
+            "masked_account_number": f"**** {employee.account_number[-4:]}" if employee.account_number else ""
+        }
+
+    def get_earnings_breakdown(self, obj):
+        items = [
+            {"label": "Basic Salary", "amount": float(obj.basic_salary)},
+            {"label": "HRA", "amount": float(obj.hra)},
+            {"label": "Special Allowance", "amount": float(obj.special_allowance)},
+            {"label": "Medical Allowance", "amount": float(obj.medical_allowance)},
+            {"label": "Conveyance Allowance", "amount": float(obj.conveyance_allowance)},
+            {"label": "Bonus", "amount": float(obj.bonus)},
+            {"label": "Arrears", "amount": float(obj.arrears)},
+        ]
+        return [item for item in items if item["amount"] > 0]
+
+    def get_deductions_breakdown(self, obj):
+        items = [
+            {"label": "Tax (TDS)", "amount": float(obj.tds)},
+            {"label": "Provident Fund", "amount": float(obj.epf)},
+            {"label": "Loan Deduction", "amount": float(obj.loan_deduction)},
+            {"label": "Advance Deduction", "amount": float(obj.advance_deduction)},
+            {"label": "Unpaid Leave Deduction", "amount": float(obj.unpaid_leave_deduction)},
+            {"label": "Misc Deduction", "amount": float(obj.misc_deduction)},
+            {"label": "Professional Tax", "amount": float(obj.misc_deduction_2)}, # Mapping misc_deduction_2 to Professional Tax or Health Insurance
+        ]
+        return [item for item in items if item["amount"] > 0]
 
 class SalaryOverviewSerializer(serializers.Serializer):
     id = serializers.CharField(source='employee.id')
@@ -108,9 +184,26 @@ class SalaryOverviewSerializer(serializers.Serializer):
     email = serializers.EmailField(source='employee.email')
     date_of_joining = serializers.DateField(source='employee.joining_date')
     type = serializers.CharField(default='employee')
+    annual_ctc = serializers.SerializerMethodField()
+    bank_details = serializers.SerializerMethodField()
     salary_details = SalaryStructureSerializer(many=True)
     holding_details = serializers.ListField(default=[])
-    payslip_history = PayslipSerializer(many=True)
+    payslip_months = PayslipSummarySerializer(many=True)
+    selected_payslip = PayslipSerializer()
+
+    def get_annual_ctc(self, obj):
+        # latest_structure is the last one in the list (ordered by applicable_from)
+        salary_details = obj.get('salary_details', [])
+        if salary_details:
+            latest = salary_details[len(salary_details)-1]
+            return float(latest.total_earnings * 12)
+        return 0
+
+    def get_bank_details(self, obj):
+        # employee is available in the context or we can fetch it if passed as dict
+        # In UserSalaryInfoView, data is a dict
+        # But wait, SalaryOverviewSerializer is used where?
+        return {}
 
 class PayrollConfigSerializer(serializers.ModelSerializer):
     class Meta:
