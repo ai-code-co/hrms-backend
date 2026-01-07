@@ -44,8 +44,8 @@ class UserSalaryInfoView(APIView):
     def get(self, request):
         employee = get_object_or_404(Employee, user=request.user)
         
-        # Get salary structure (plural if historical, but here we take current)
-        salary_structure = SalaryStructure.objects.filter(employee=employee, is_active=True)
+        # Get historical salary structures
+        salary_structures = SalaryStructure.objects.filter(employee=employee).order_by('applicable_from')
         
         # Get payslip history
         payslips = Payslip.objects.filter(employee=employee).order_by('-year', '-month')
@@ -55,15 +55,14 @@ class UserSalaryInfoView(APIView):
         salary_preview = PayrollService.calculate_monthly_salary(employee, now.month, now.year)
         
         data = {
-            "id": str(request.user.id),
+            "id": str(employee.id),
             "name": employee.get_full_name(),
             "email": employee.email,
             "date_of_joining": employee.joining_date,
             "type": "employee",
-            "current_month_preview": salary_preview,
-            "salary_details": SalaryStructureSerializer(salary_structure, many=True).data,
-            "payslip_history": PayslipSerializer(payslips, many=True).data,
-            "holding_details": []
+            "salary_details": SalaryStructureSerializer(salary_structures, many=True).data,
+            "holding_details": [],
+            "payslip_history": PayslipSerializer(payslips, many=True).data
         }
         
         return Response({

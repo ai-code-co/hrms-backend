@@ -142,10 +142,10 @@ class AttendanceListSerializer(serializers.ModelSerializer):
         """Get summary of work locations and times"""
         parts = []
         if obj.office_seconds_worked > 0:
-            office_time = format_seconds_to_time(obj.office_seconds_worked)
+            office_time = format_seconds_to_hms(obj.office_seconds_worked)
             parts.append(f"Office: {office_time}")
         if obj.home_seconds_worked > 0:
-            home_time = format_seconds_to_time(obj.home_seconds_worked)
+            home_time = format_seconds_to_hms(obj.home_seconds_worked)
             parts.append(f"Home: {home_time}")
         return ", ".join(parts) if parts else ""
 
@@ -211,30 +211,28 @@ class AttendanceDetailSerializer(serializers.ModelSerializer):
     
     def get_total_time(self, obj):
         """Format total time worked"""
-        return format_seconds_to_time(obj.seconds_actual_worked_time)
+        return format_seconds_to_hms(obj.seconds_actual_worked_time)
     
     def get_extra_time(self, obj):
         """Format extra time with status"""
-        if obj.seconds_extra_time == 0:
-            return ""
-        return format_seconds_to_time(obj.seconds_extra_time)
+        return format_seconds_to_hms(obj.seconds_extra_time, include_sign=True)
     
     def get_office_time_formatted(self, obj):
         """Format office time worked"""
-        return format_seconds_to_time(obj.office_seconds_worked)
+        return format_seconds_to_hms(obj.office_seconds_worked)
     
     def get_home_time_formatted(self, obj):
         """Format home time worked"""
-        return format_seconds_to_time(obj.home_seconds_worked)
+        return format_seconds_to_hms(obj.home_seconds_worked)
     
     def get_work_location_summary(self, obj):
         """Get summary of work locations and times"""
         parts = []
         if obj.office_seconds_worked > 0:
-            office_time = format_seconds_to_time(obj.office_seconds_worked)
+            office_time = format_seconds_to_hms(obj.office_seconds_worked)
             parts.append(f"Office: {office_time}")
         if obj.home_seconds_worked > 0:
-            home_time = format_seconds_to_time(obj.home_seconds_worked)
+            home_time = format_seconds_to_hms(obj.home_seconds_worked)
             parts.append(f"Home: {home_time}")
         return ", ".join(parts) if parts else ""
     
@@ -583,7 +581,7 @@ class MonthlyAttendanceSerializer(serializers.Serializer):
             attendance_array.append(day_record)
         
         # Calculate summaries with "Till Today" logic
-        compensation_time_str = format_seconds_to_time(seconds_to_compensate)
+        compensation_time_str = format_seconds_to_hms(seconds_to_compensate)
         actual_working_hours = format_seconds_to_hours_mins(total_seconds_worked)
         
         calculation_limit_date = today if (year == today.year and month == today.month) else datetime(year, month, num_days).date()
@@ -843,12 +841,15 @@ class WeeklyTimesheetSerializer(serializers.Serializer):
                 home_out_time = getattr(attendance, 'home_out_time', None)
                 office_out_time = getattr(attendance, 'office_out_time', None)
                 
-                in_time_str = format_time_to_12hr(home_in_time) if home_in_time else format_time_to_12hr(office_in_time) if office_in_time else ""
-                out_time_str = format_time_to_12hr(home_out_time) if home_out_time else format_time_to_12hr(office_out_time) if office_out_time else ""
+                in_time_str = format_datetime_to_iso(home_in_time) if home_in_time else format_datetime_to_iso(office_in_time) if office_in_time else ""
+                out_time_str = format_datetime_to_iso(home_out_time) if home_out_time else format_datetime_to_iso(office_out_time) if office_out_time else ""
                 
-                # Calculate total hours
+                # Calculate total and extra time
                 seconds_worked = getattr(attendance, 'seconds_actual_worked_time', 0) or 0
-                total_hours = seconds_worked // 3600 if seconds_worked > 0 else 0
+                total_time_str = format_seconds_to_hms(seconds_worked)
+                
+                seconds_extra = getattr(attendance, 'seconds_extra_time', 0) or 0
+                extra_time_str = format_seconds_to_hms(seconds_extra, include_sign=True)
                 
                 # File URL - safely check for tracker_screenshot field
                 file_url = ""
@@ -877,7 +878,8 @@ class WeeklyTimesheetSerializer(serializers.Serializer):
                 total_time = default_total_time
                 in_time_str = ""
                 out_time_str = ""
-                total_hours = 0
+                total_time_str = "00:00:00"
+                extra_time_str = "00:00:00"
                 file_url = ""
                 file_id = ""
                 status = ""
@@ -889,7 +891,9 @@ class WeeklyTimesheetSerializer(serializers.Serializer):
                 "date": current_date.strftime(DAY_NUMBER_FORMAT),
                 "day": day_name,
                 "office_working_hours": office_hours,
-                "total_hours": str(total_hours) if total_hours > 0 else "0",
+                "total_hours": total_time_str,
+                "total_time": total_time_str,
+                "extra_time": extra_time_str,
                 "comments": comments,
                 "file": file_url,
                 "fileId": file_id,
