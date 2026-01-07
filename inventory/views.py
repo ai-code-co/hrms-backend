@@ -245,14 +245,14 @@ class DeviceViewSet(viewsets.ModelViewSet):
         user = request.user
         
         # Check if user has employee profile
-        if not hasattr(user, 'employee_profile'):
+        if not hasattr(user, 'employee'):
             return Response({
                 "error": 1,
                 "message": "User must have an employee profile"
             }, status=status.HTTP_400_BAD_REQUEST)
         
         devices = Device.objects.filter(
-            employee=user.employee_profile,
+            employee=user.employee,
             is_active=True
         ).select_related('device_type')
         
