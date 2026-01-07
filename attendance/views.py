@@ -26,7 +26,8 @@ from .serializers import (
     CheckOutSerializer,
     MonthlyAttendanceSerializer,
     WeeklyTimesheetSubmitSerializer,
-    WeeklyTimesheetSerializer
+    WeeklyTimesheetSerializer,
+    UpdateSessionSerializer
 )
 from holidays.models import Holiday
 from employees.models import Employee
