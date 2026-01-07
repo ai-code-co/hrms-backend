@@ -962,6 +962,11 @@ class AttendanceViewSet(viewsets.ModelViewSet):
             }
         }, status=status.HTTP_201_CREATED)
 
+    @swagger_auto_schema(
+        operation_description="Manually create or update attendance for a specific day.",
+        request_body=UpdateSessionSerializer,
+        responses={200: "Success Response"}
+    )
     @action(detail=False, methods=['post'], url_path='manual-update')
     def manual_update(self, request):
         """
