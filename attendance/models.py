@@ -15,6 +15,9 @@ class Attendance(models.Model):
         ('LEAVE_DAY', 'Leave Day'),
         ('HOLIDAY', 'Holiday'),
         ('WEEKEND_OFF', 'Weekend Off'),
+        ('ABSENT', 'Absent'),
+        ('FUTURE_DAY', 'Future Day'),
+        ('BEFORE_JOINING', 'Before Joining'),
     ]
     
     EXTRA_TIME_STATUS_CHOICES = [
@@ -82,6 +85,29 @@ class Attendance(models.Model):
     # Flags
     is_day_before_joining = models.BooleanField(default=False)
     is_working_from_home = models.BooleanField(default=False)
+
+    # Timesheet Fields
+    TIMESHEET_STATUS_CHOICES = [
+        ('PENDING', 'Pending'),
+        ('APPROVED', 'Approved'),
+        ('REJECTED', 'Rejected'),
+    ]
+    timesheet_status = models.CharField(
+        max_length=10, 
+        choices=TIMESHEET_STATUS_CHOICES, 
+        default='APPROVED'
+    )
+    timesheet_submitted_at = models.DateTimeField(null=True, blank=True)
+    timesheet_approved_by = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='approved_timesheets'
+    )
+    timesheet_approved_at = models.DateTimeField(null=True, blank=True)
+    timesheet_admin_notes = models.TextField(blank=True)
+    tracker_screenshot = models.CharField(max_length=500, null=True, blank=True, help_text="Cloudinary public ID / path for the screenshot")
 
     # Audit
     created_at = models.DateTimeField(auto_now_add=True)

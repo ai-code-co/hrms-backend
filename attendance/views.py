@@ -851,22 +851,9 @@ class AttendanceViewSet(viewsets.ModelViewSet):
                     updated_by=user
                 )
             
-            # Handle file upload with versioning
-            if tracker_screenshot:
-                if hasattr(attendance, 'tracker_screenshot'):
-                    try:
-                        # Generate unique filename with timestamp
-                        import os
-                        from django.utils import timezone
-                        timestamp = int(timezone.now().timestamp())
-                        filename = getattr(tracker_screenshot, 'name', 'screenshot.png')
-                        name, ext = os.path.splitext(filename)
-                        unique_filename = f"{timestamp}_{employee.id}_{name}{ext}"
-                        attendance.tracker_screenshot.save(unique_filename, tracker_screenshot, save=False)
-                    except (AttributeError, ValueError, Exception) as e:
-                        # If file upload fails, continue without the screenshot
-                        # Log the error but don't fail the entire request
-                        pass
+            # Handle tracker screenshot (Cloudinary public ID/path)
+            if tracker_screenshot and hasattr(attendance, 'tracker_screenshot'):
+                attendance.tracker_screenshot = tracker_screenshot
             
             # Set home times
             home_in_time = None
@@ -915,36 +902,35 @@ class AttendanceViewSet(viewsets.ModelViewSet):
             attendance.text = comments
             attendance.day_text = comments
             attendance.seconds_actual_worked_time = total_time_seconds
-            
-            # Set timesheet fields only if they exist in the model
-            if hasattr(attendance, 'timesheet_submitted_at'):
-                attendance.timesheet_submitted_at = timezone.now()
+            attendance.timesheet_submitted_at = timezone.now()
             
             # Set status: auto-approve non-WFH, PENDING for WFH
-            if hasattr(attendance, 'timesheet_status'):
-                if is_working_from_home:
-                    attendance.timesheet_status = 'PENDING'
-                else:
-                    attendance.timesheet_status = 'APPROVED'
-                    if hasattr(attendance, 'timesheet_approved_by'):
-                        attendance.timesheet_approved_by = user
-                    if hasattr(attendance, 'timesheet_approved_at'):
-                        attendance.timesheet_approved_at = timezone.now()
+            if is_working_from_home:
+                attendance.timesheet_status = 'PENDING'
+            else:
+                attendance.timesheet_status = 'APPROVED'
+                attendance.timesheet_approved_by = user
+                attendance.timesheet_approved_at = timezone.now()
             
             attendance.updated_by = user
             self._determine_day_type(attendance)
-            attendance.save()
+            
+            from django.core.exceptions import ValidationError as DjangoValidationError
+            try:
+                attendance.save()
+            except DjangoValidationError as e:
+                return Response({
+                    "error": 1,
+                    "message": "Validation failed: " + str(e)
+                }, status=status.HTTP_400_BAD_REQUEST)
+            except Exception as e:
+                return Response({
+                    "error": 1,
+                    "message": "An error occurred: " + str(e)
+                }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
         
         # Format response
-        status_display = ""
-        if hasattr(attendance, 'timesheet_status') and hasattr(attendance, 'get_timesheet_status_display'):
-            try:
-                status_display = attendance.get_timesheet_status_display()
-            except (AttributeError, ValueError):
-                status_display = getattr(attendance, 'timesheet_status', '')
-        elif is_working_from_home:
-            # If timesheet_status field doesn't exist but it's WFH, show "Pending"
-            status_display = "Pending"
+        status_display = attendance.get_timesheet_status_display()
         
         # Determine if approval is required
         requires_approval = is_working_from_home and not (user.is_staff or user.is_superuser)
@@ -957,11 +943,16 @@ class AttendanceViewSet(viewsets.ModelViewSet):
                 "status": status_display,
                 "date": attendance.date.strftime(DATE_FORMAT),
                 "is_working_from_home": attendance.is_working_from_home,
-                "auto_approved": not is_working_from_home and hasattr(attendance, 'timesheet_status'),
+                "auto_approved": not is_working_from_home,
                 "requires_approval": requires_approval
             }
         }, status=status.HTTP_201_CREATED)
 
+    @swagger_auto_schema(
+        operation_description="Manually create or update attendance for a specific day.",
+        request_body=UpdateSessionSerializer,
+        responses={200: "Success Response"}
+    )
     @action(detail=False, methods=['post'], url_path='manual-update')
     def manual_update(self, request):
         """

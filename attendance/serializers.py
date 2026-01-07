@@ -1,4 +1,5 @@
 from rest_framework import serializers
+import os
 from .models import Attendance
 from datetime import datetime
 from calendar import monthrange
@@ -166,9 +167,9 @@ class AttendanceDetailSerializer(serializers.ModelSerializer):
     goal_status = serializers.SerializerMethodField()
     progress_percentage = serializers.SerializerMethodField()
     
-    # Employee info
     employee_detail = serializers.SerializerMethodField()
     work_location_summary = serializers.SerializerMethodField()
+    tracker_screenshot_url = serializers.SerializerMethodField()
     
     class Meta:
         model = Attendance
@@ -196,6 +197,10 @@ class AttendanceDetailSerializer(serializers.ModelSerializer):
             'day_text', 'text',
             # Flags
             'is_working_from_home',
+            # Timesheet
+            'timesheet_status', 'timesheet_submitted_at',
+            'timesheet_approved_at', 'timesheet_admin_notes',
+            'tracker_screenshot', 'tracker_screenshot_url',
             # Employee
             'employee', 'employee_detail',
             # System
@@ -251,6 +256,17 @@ class AttendanceDetailSerializer(serializers.ModelSerializer):
             'designation': obj.employee.designation.name if obj.employee.designation else None,
             'department': obj.employee.department.name if obj.employee.department else None,
         }
+
+    def get_tracker_screenshot_url(self, obj):
+        """Construct full Cloudinary URL from stored path"""
+        if not obj.tracker_screenshot:
+            return None
+        
+        if obj.tracker_screenshot.startswith('http'):
+            return obj.tracker_screenshot
+            
+        cloudinary_base = os.getenv('CLOUDINARY_BASE_URL', 'https://res.cloudinary.com/dhlyvqdoi/image/upload')
+        return f"{cloudinary_base}/{obj.tracker_screenshot}"
     
     def get_goal_status(self, obj):
         """Get goal status for UI"""
@@ -684,7 +700,7 @@ class WeeklyTimesheetSubmitSerializer(serializers.Serializer):
     date = serializers.DateField(required=True)
     total_time = serializers.CharField(required=True, help_text="Total hours worked (e.g., '8', '8.5')")
     comments = serializers.CharField(required=False, allow_blank=True, help_text="Comments/work description (required for WFH)")
-    tracker_screenshot = serializers.FileField(required=False, allow_null=True, help_text="Tracker screenshot (required for WFH)")
+    tracker_screenshot = serializers.CharField(required=False, allow_blank=True, help_text="Cloudinary public ID / path for the screenshot (required for WFH)")
     is_working_from_home = serializers.BooleanField(default=False)
     home_in_time = serializers.CharField(required=False, allow_blank=True, help_text="Home check-in time in 12-hour format (e.g., '10:30 AM') - optional")
     home_out_time = serializers.CharField(required=False, allow_blank=True, help_text="Home check-out time in 12-hour format (e.g., '06:30 PM') - optional")
@@ -744,16 +760,7 @@ class WeeklyTimesheetSubmitSerializer(serializers.Serializer):
             
             # Screenshot required
             if not screenshot:
-                errors['tracker_screenshot'] = 'Tracker screenshot is required when working from home.'
-            else:
-                # Validate file type
-                allowed_types = ['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'application/pdf']
-                if screenshot.content_type not in allowed_types:
-                    errors['tracker_screenshot'] = 'Invalid file type. Allowed: JPG, PNG, GIF, WEBP, PDF'
-                
-                # Validate file size (5MB max)
-                if screenshot.size > 5 * 1024 * 1024:
-                    errors['tracker_screenshot'] = 'File size exceeds 5MB limit.'
+                errors['tracker_screenshot'] = 'Tracker screenshot (public ID) is required when working from home. Please provide the public_id from the image upload API.'
             
             if errors:
                 raise serializers.ValidationError(errors)
