@@ -162,7 +162,9 @@ class AttendanceDetailSerializer(serializers.ModelSerializer):
     extra_time = serializers.SerializerMethodField()
     office_time_formatted = serializers.SerializerMethodField()
     home_time_formatted = serializers.SerializerMethodField()
-    work_location_summary = serializers.SerializerMethodField()
+    # Goal and Progress for UI
+    goal_status = serializers.SerializerMethodField()
+    progress_percentage = serializers.SerializerMethodField()
     
     # Employee info
     employee_detail = serializers.SerializerMethodField()
@@ -183,6 +185,8 @@ class AttendanceDetailSerializer(serializers.ModelSerializer):
             # Formatted time strings
             'total_time', 'extra_time', 'office_time_formatted', 'home_time_formatted',
             'work_location_summary',
+            # Goal and Progress (for UI)
+            'goal_status', 'progress_percentage',
             # Status
             'day_type', 'extra_time_status',
             # Alerts
@@ -246,6 +250,19 @@ class AttendanceDetailSerializer(serializers.ModelSerializer):
             'designation': obj.employee.designation.name if obj.employee.designation else None,
             'department': obj.employee.department.name if obj.employee.department else None,
         }
+    
+    def get_goal_status(self, obj):
+        """Get goal status for UI"""
+        if obj.seconds_actual_worked_time >= obj.orignal_total_time:
+            return "Goal Reached"
+        return "Goal Pending"
+    
+    def get_progress_percentage(self, obj):
+        """Get work progress percentage for UI"""
+        if not obj.orignal_total_time or obj.orignal_total_time == 0:
+            return 0
+        percentage = (obj.seconds_actual_worked_time / obj.orignal_total_time) * 100
+        return min(round(percentage, 2), 100)
 
 
 class AttendanceCreateUpdateSerializer(serializers.ModelSerializer):
@@ -912,3 +929,43 @@ class WeeklyTimesheetSerializer(serializers.Serializer):
             "error": 0,
             "data": attendance_array
         }
+
+
+class UpdateSessionSerializer(serializers.Serializer):
+    """Serializer for manually updating session times via UI"""
+    in_time = serializers.CharField(required=True, help_text="Clock-in time (e.g., '02:30 PM')")
+    out_time = serializers.CharField(required=True, help_text="Clock-out time (e.g., '11:30 PM')")
+    is_working_from_home = serializers.BooleanField(default=False)
+    
+    def parse_time_string(self, time_str, date):
+        """Parse 12-hour time string like '12:00 PM' to aware datetime"""
+        from django.utils import timezone
+        from datetime import datetime
+        import re
+        
+        if not time_str:
+            return None
+        
+        # Parse 12-hour format: "12:00 PM"
+        time_pattern = r'(\d{1,2}):(\d{2})\s*(AM|PM)'
+        match = re.match(time_pattern, time_str.strip(), re.IGNORECASE)
+        
+        if not match:
+            raise serializers.ValidationError(f"Invalid time format: {time_str}. Use '12:00 PM'")
+        
+        hour = int(match.group(1))
+        minute = int(match.group(2))
+        am_pm = match.group(3).upper()
+        
+        if am_pm == 'PM' and hour != 12:
+            hour += 12
+        elif am_pm == 'AM' and hour == 12:
+            hour = 0
+            
+        dt = datetime.combine(date, datetime.min.time().replace(hour=hour, minute=minute))
+        return timezone.make_aware(dt)
+
+    def validate(self, data):
+        """Verify times are logical"""
+        # Actual validation happens in create/update logic using parse_time_string
+        return data
