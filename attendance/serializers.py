@@ -168,6 +168,7 @@ class AttendanceDetailSerializer(serializers.ModelSerializer):
     
     # Employee info
     employee_detail = serializers.SerializerMethodField()
+    work_location_summary = serializers.SerializerMethodField()
     
     class Meta:
         model = Attendance
@@ -933,6 +934,7 @@ class WeeklyTimesheetSerializer(serializers.Serializer):
 
 class UpdateSessionSerializer(serializers.Serializer):
     """Serializer for manually updating session times via UI"""
+    date = serializers.DateField(required=True, help_text="Date for the attendance (e.g., '2026-01-02')")
     in_time = serializers.CharField(required=True, help_text="Clock-in time (e.g., '02:30 PM')")
     out_time = serializers.CharField(required=True, help_text="Clock-out time (e.g., '11:30 PM')")
     is_working_from_home = serializers.BooleanField(default=False)

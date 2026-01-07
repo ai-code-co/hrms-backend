@@ -34,7 +34,7 @@ from employees.models import Employee
 from .services import AttendanceCalculationService
 from django.conf import settings
 from .constants import DATE_FORMAT, TIME_12HR_FORMAT
-from .serializers import format_datetime_to_iso
+from .serializers import format_datetime_to_iso, format_seconds_to_hms
 
 
 class AttendanceViewSet(viewsets.ModelViewSet):
@@ -961,6 +961,119 @@ class AttendanceViewSet(viewsets.ModelViewSet):
                 "requires_approval": requires_approval
             }
         }, status=status.HTTP_201_CREATED)
+
+    @action(detail=False, methods=['post'], url_path='manual-update')
+    def manual_update(self, request):
+        """
+        Manually create or update attendance for a specific day.
+        POST /api/attendance/manual-update/
+        """
+        user = request.user
+        
+        if not hasattr(user, 'employee_profile'):
+            return Response({
+                "error": 1,
+                "message": "User must have an employee profile"
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        employee = user.employee_profile
+        serializer = UpdateSessionSerializer(data=request.data)
+        
+        if not serializer.is_valid():
+            return Response({
+                "error": 1,
+                "message": "Validation failed",
+                "errors": serializer.errors
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        # Extract data
+        date = serializer.validated_data['date']
+        in_time_str = serializer.validated_data['in_time']
+        out_time_str = serializer.validated_data['out_time']
+        is_working_from_home = serializer.validated_data.get('is_working_from_home', False)
+        
+        # Parse times
+        try:
+            in_time = serializer.parse_time_string(in_time_str, date)
+            out_time = serializer.parse_time_string(out_time_str, date)
+        except Exception as e:
+            return Response({
+                "error": 1,
+                "message": str(e)
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        if out_time < in_time:
+            return Response({
+                "error": 1,
+                "message": "Out time cannot be before in time"
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        # Calculate worked seconds
+        worked_seconds = int((out_time - in_time).total_seconds())
+        
+        with transaction.atomic():
+            # Create or update attendance record
+            attendance, created = Attendance.objects.get_or_create(
+                employee=employee,
+                date=date,
+                defaults={
+                    'office_working_hours': getattr(settings, 'ATTENDANCE_DEFAULT_WORKING_HOURS', '09:00'),
+                    'orignal_total_time': getattr(settings, 'ATTENDANCE_DEFAULT_TOTAL_TIME_SECONDS', 32400),
+                    'created_by': user,
+                    'updated_by': user
+                }
+            )
+            
+            # Update times
+            if is_working_from_home:
+                attendance.home_in_time = in_time
+                attendance.home_out_time = out_time
+                attendance.is_working_from_home = True
+            else:
+                attendance.office_in_time = in_time
+                attendance.office_out_time = out_time
+                attendance.is_working_from_home = False
+            
+            # Update general fields
+            attendance.in_time = in_time
+            attendance.out_time = out_time
+            attendance.seconds_actual_worked_time = worked_seconds
+            attendance.updated_by = user
+            
+            # Auto-approve manual updates if they are not WFH or if submitted by admin
+            if hasattr(attendance, 'timesheet_status'):
+                if is_working_from_home and not user.is_staff:
+                    attendance.timesheet_status = 'PENDING'
+                else:
+                    attendance.timesheet_status = 'APPROVED'
+                    if hasattr(attendance, 'timesheet_approved_by'):
+                        attendance.timesheet_approved_by = user
+                    if hasattr(attendance, 'timesheet_approved_at'):
+                        attendance.timesheet_approved_at = timezone.now()
+            
+            self._determine_day_type(attendance)
+            attendance.save()
+        
+        # Calculate progress for response
+        total_goal = attendance.orignal_total_time or 32400
+        progress = (worked_seconds / total_goal) * 100
+        goal_status = "Goal Reached" if worked_seconds >= total_goal else "Goal Pending"
+        
+        return Response({
+            "error": 0,
+            "message": "Attendance updated successfully",
+            "data": {
+                "id": attendance.id,
+                "full_date": attendance.date.strftime("%Y-%m-%d"),
+                "total_time": format_seconds_to_hms(worked_seconds),
+                "goal_status": goal_status,
+                "progress_percentage": min(round(progress, 2), 100.0),
+                "in_time": format_datetime_to_iso(in_time),
+                "out_time": format_datetime_to_iso(out_time),
+                "day_type": attendance.day_type,
+                "is_working_from_home": attendance.is_working_from_home
+            }
+        }, status=status.HTTP_200_OK)
     
     @action(detail=True, methods=['post', 'patch'], url_path='approve', permission_classes=[IsAdminUser])
     def approve_timesheet(self, request, pk=None):
