@@ -764,11 +764,11 @@ class AttendanceViewSet(viewsets.ModelViewSet):
         
         return Response(response_data, status=status.HTTP_200_OK)
     
-    @action(detail=False, methods=['post'], url_path='weekly/submit')
+    @action(detail=False, methods=['post'], url_path='submit-timesheet')
     def submit_weekly_timesheet(self, request):
         """
         Submit timesheet entry for a specific day
-        POST /api/attendance/weekly/submit/
+        POST /api/attendance/submit-timesheet/
         Body (multipart/form-data): {
             "date": "2025-12-24",
             "total_time": "8",
