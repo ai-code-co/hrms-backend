@@ -1,3 +1,4 @@
+import os
 from rest_framework import serializers
 from .models import Employee, EmergencyContact, Education, WorkHistory, Role
 from departments.serializers import DepartmentSerializer, DesignationSerializer
@@ -91,6 +92,7 @@ class EmployeeDetailSerializer(serializers.ModelSerializer):
     emergency_contacts = EmergencyContactSerializer(many=True, read_only=True)
     educations = EducationSerializer(many=True, read_only=True)
     work_histories = WorkHistorySerializer(many=True, read_only=True)
+    photo_url = serializers.SerializerMethodField()
     
     class Meta:
         model = Employee
@@ -102,7 +104,7 @@ class EmployeeDetailSerializer(serializers.ModelSerializer):
             # Personal
             'first_name', 'middle_name', 'last_name', 
             'date_of_birth', 'gender', 'marital_status',
-            'nationality', 'blood_group', 'photo',
+            'nationality', 'blood_group', 'photo', 'photo_url',
             # Contact
             'email', 'phone', 'alternate_phone',
             'address_line1', 'address_line2', 'city',
@@ -140,6 +142,17 @@ class EmployeeDetailSerializer(serializers.ModelSerializer):
                 'designation': obj.reporting_manager.designation.name if obj.reporting_manager.designation else None
             }
         return None
+
+    def get_photo_url(self, obj):
+        """Construct full Cloudinary URL from stored photo path/public_id"""
+        if not obj.photo:
+            return None
+        
+        if obj.photo.startswith('http'):
+            return obj.photo
+            
+        cloudinary_base = os.getenv('CLOUDINARY_BASE_URL', 'https://res.cloudinary.com/dhlyvqdoi/image/upload')
+        return f"{cloudinary_base}/{obj.photo}"
 
 
 class EmployeeCreateUpdateSerializer(serializers.ModelSerializer):

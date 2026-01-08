@@ -267,9 +267,9 @@ class EmployeeViewSet(viewsets.ModelViewSet):
         return Response(status=status.HTTP_204_NO_CONTENT)
 
     
-    @action(detail=False, methods=['get'])
+    @action(detail=False, methods=['get', 'patch'])
     def me(self, request):
-        """Get current logged-in user's employee profile"""
+        """Get or update current logged-in user's employee profile"""
         if not hasattr(request.user, 'employee_profile'):
             return Response(
                 {'detail': 'No employee profile found for this user.'},
@@ -277,6 +277,26 @@ class EmployeeViewSet(viewsets.ModelViewSet):
             )
         
         employee = request.user.employee_profile
+        
+        if request.method == 'PATCH':
+            # Allow partial update of self profile
+            serializer = EmployeeCreateUpdateSerializer(
+                employee, 
+                data=request.data, 
+                partial=True
+            )
+            if serializer.is_valid():
+                serializer.save(updated_by=request.user)
+                # Return the detailed view after update
+                detail_serializer = EmployeeSelfDetailSerializer(employee)
+                return Response({
+                    "success": True,
+                    "message": "Profile updated successfully",
+                    "data": detail_serializer.data
+                })
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+        
+        # GET request
         serializer = EmployeeSelfDetailSerializer(employee)
         return Response(serializer.data)
     
