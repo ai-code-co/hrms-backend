@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from .models import DeviceType, Device, DeviceAssignment
+from .models import DeviceType, Device, DeviceAssignment, DeviceComment
 from employees.models import Employee
 
 
@@ -36,6 +36,33 @@ class DeviceTypeSerializer(serializers.ModelSerializer):
         read_only_fields = ['created_at', 'updated_at']
 
 
+class DeviceCommentSerializer(serializers.ModelSerializer):
+    """Serializer for device comments"""
+    employee_name = serializers.CharField(source='employee.get_full_name', read_only=True)
+    formatted_date = serializers.SerializerMethodField()
+
+    class Meta:
+        model = DeviceComment
+        fields = [
+            'id', 'device', 'employee', 'employee_name', 
+            'comment', 'created_at', 'formatted_date'
+        ]
+        read_only_fields = ['device', 'employee', 'created_at']
+
+    def get_formatted_date(self, obj):
+        """Format: 2nd Jan 26, 3:35 pm"""
+        # We'll use a specific format as per UI screenshot
+        # "2nd Jan 26, 3:35 pm"
+        d = obj.created_at
+        day = d.day
+        if 4 <= day <= 20 or 24 <= day <= 30:
+            suffix = "th"
+        else:
+            suffix = ["st", "nd", "rd"][day % 10 - 1]
+        
+        return d.strftime(f"{day}{suffix} %b %y, %I:%M %p").lower()
+
+
 class DeviceListSerializer(serializers.ModelSerializer):
     """Lightweight serializer for device lists"""
     device_type_name = serializers.CharField(source='device_type.name', read_only=True)
@@ -44,6 +71,7 @@ class DeviceListSerializer(serializers.ModelSerializer):
     status_display = serializers.CharField(source='get_status_display', read_only=True)
     condition_display = serializers.CharField(source='get_condition_display', read_only=True)
     is_under_warranty = serializers.BooleanField(read_only=True)
+    recent_comments = serializers.SerializerMethodField()
 
     class Meta:
         model = Device
@@ -54,13 +82,18 @@ class DeviceListSerializer(serializers.ModelSerializer):
             'condition', 'condition_display',
             'employee', 'employee_id', 'employee_name',
             'purchase_date', 'warranty_expiry', 'is_under_warranty',
-            'is_active', 'created_at'
+            'recent_comments', 'is_active', 'created_at'
         ]
     
     def get_employee_name(self, obj):
         if obj.employee:
             return obj.employee.get_full_name()
         return None
+
+    def get_recent_comments(self, obj):
+        """Get actual comments from database"""
+        comments = obj.comments.all().select_related('employee')[:10]
+        return DeviceCommentSerializer(comments, many=True).data
 
 
 class DeviceDetailSerializer(serializers.ModelSerializer):

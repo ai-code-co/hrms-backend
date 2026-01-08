@@ -286,3 +286,32 @@ class DeviceAssignment(models.Model):
             return 0
         end_date = self.returned_date or timezone.now()
         return (end_date - self.assigned_date).days
+
+
+class DeviceComment(models.Model):
+    """Comments/History notes for a device"""
+    device = models.ForeignKey(
+        Device,
+        on_delete=models.CASCADE,
+        related_name='comments',
+        help_text="Device this comment belongs to"
+    )
+    employee = models.ForeignKey(
+        Employee,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='device_comments',
+        help_text="Employee who made the comment"
+    )
+    comment = models.TextField(help_text="The comment/note content")
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['-created_at']
+        verbose_name = 'Device Comment'
+        verbose_name_plural = 'Device Comments'
+
+    def __str__(self):
+        return f"Comment by {self.employee} on {self.device}"
