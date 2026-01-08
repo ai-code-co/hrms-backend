@@ -13,7 +13,7 @@ try:
 except ImportError:
     HAS_DJANGO_FILTER = False
 
-from .models import DeviceType, Device, DeviceAssignment
+from .models import DeviceType, Device, DeviceAssignment, DeviceComment
 from .serializers import (
     DeviceTypeListSerializer,
     DeviceTypeSerializer,
@@ -22,7 +22,8 @@ from .serializers import (
     DeviceCreateUpdateSerializer,
     DeviceAssignmentSerializer,
     DeviceAssignSerializer,
-    DeviceUnassignSerializer
+    DeviceUnassignSerializer,
+    DeviceCommentSerializer
 )
 from .permissions import (
     IsAdminManagerOrHR,
