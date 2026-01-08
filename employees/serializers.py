@@ -306,11 +306,6 @@ class EmployeeSelfDetailSerializer(EmployeeDetailSerializer):
             "aadhar_number",
             "passport_number",
             "driving_license",
-            # Sensitive financial information
-            "bank_name",
-            "account_number",
-            "ifsc_code",
-            "account_holder_name",
             # Redundant ID fields (we have _detail versions)
             "department",
             "designation",
