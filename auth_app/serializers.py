@@ -101,6 +101,7 @@ class AdminCreateUserSerializer(serializers.ModelSerializer):
 class UserProfileSerializer(serializers.ModelSerializer):
     photo = serializers.SerializerMethodField()
     photo_url = serializers.SerializerMethodField()
+    role_detail = serializers.SerializerMethodField()
 
     class Meta:
         model = User
@@ -112,6 +113,7 @@ class UserProfileSerializer(serializers.ModelSerializer):
             "last_name",
             "photo",
             "photo_url",
+            "role_detail",
             "phone_number",
             "gender",
             "job_title",
@@ -121,6 +123,13 @@ class UserProfileSerializer(serializers.ModelSerializer):
             "is_first_login",
             "date_joined",
         ]
+
+    def get_role_detail(self, obj):
+        """Get role details from employee profile"""
+        if hasattr(obj, 'employee_profile') and obj.employee_profile.role:
+            from employees.serializers import RoleSerializer
+            return RoleSerializer(obj.employee_profile.role).data
+        return None
 
     def get_photo(self, obj):
         """Get the Cloudinary path/public_id from employee profile"""

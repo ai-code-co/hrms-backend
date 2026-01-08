@@ -6,11 +6,12 @@ from departments.serializers import DepartmentSerializer, DesignationSerializer
 
 class RoleSerializer(serializers.ModelSerializer):
     """Serializer for Role"""
+    role = serializers.CharField(source='name')
     
     class Meta:
         model = Role
         fields = [
-            'id', 'name', 'description',
+            'id', 'role', 'description',
             'can_view_all_employees', 'can_create_employees',
             'can_edit_all_employees', 'can_delete_employees',
             'can_view_subordinates', 'can_approve_leave',
