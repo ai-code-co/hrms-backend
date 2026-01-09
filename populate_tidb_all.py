@@ -175,6 +175,31 @@ def populate_all_data():
                     }
                 )
                 print(f"       └── 🕒 Updated Attendance for {date} ({duration_hours:.2f}h)")
+                # Add a PENDING timesheet entry for tomorrow for testing approval flow
+        tomorrow = today + datetime.timedelta(days=1)
+        pending_in = timezone.now().replace(year=tomorrow.year, month=tomorrow.month, day=tomorrow.day, hour=9, minute=30, second=0, microsecond=0)
+        pending_out = pending_in + datetime.timedelta(hours=9, minutes=15)
+        
+        Attendance.objects.update_or_create(
+            employee=emp,
+            date=tomorrow,
+            defaults={
+                'in_time': pending_in,
+                'out_time': pending_out,
+                'office_in_time': pending_in,
+                'office_out_time': pending_out,
+                'seconds_actual_worked_time': int((pending_out - pending_in).total_seconds()),
+                'day_type': 'WORKING_DAY',
+                'entry_type': 'MANUAL',
+                'timesheet_status': 'PENDING',
+                'is_working_from_home': False,
+                'office_working_hours': '09:00',
+                'text': 'Testing pending approval flow',
+                'created_by': user,
+                'updated_by': user
+            }
+        )
+        print(f"       └── ⏳ Added PENDING timesheet for {tomorrow} (for testing approval flow)")
         
         if not Timesheet.objects.filter(employee=emp).exists():
             Timesheet.objects.create(
@@ -422,3 +447,4 @@ if __name__ == "__main__":
 
 
 # DATABASE_URL='mysql://231jcYH2kME1CNj.root:slTPhzvfRf2bny82@gateway01.ap-southeast-1.prod.aws.tidbcloud.com:4000/test?ssl-mode=REQUIRED' python populate_tidb_all.py
+# Note: Added pending timesheet for testing - insert after line 177 manually
