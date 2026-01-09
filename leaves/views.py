@@ -197,9 +197,32 @@ class LeaveViewSet(viewsets.ModelViewSet):
                 "error": 1, 
                 "message": "User must have an employee profile to apply for leaves."
             }, status=status.HTTP_400_BAD_REQUEST)
-            
+        
         serializer = self.get_serializer(data=request.data)
         if serializer.is_valid():
+            # Check for manual attendance entries before allowing leave application
+            from attendance.models import Attendance
+            from_date = serializer.validated_data.get('from_date')
+            to_date = serializer.validated_data.get('to_date')
+            
+            # Check if any manual attendance entries exist in the date range
+            manual_entries = Attendance.objects.filter(
+                employee=user.employee_profile,
+                date__gte=from_date,
+                date__lte=to_date,
+                entry_type__in=['MANUAL', 'TIMESHEET']
+            ).order_by('date')
+            
+            if manual_entries.exists():
+                # Get the first conflicting date for error message
+                first_conflict = manual_entries.first()
+                entry_type_display = first_conflict.get_entry_type_display() if hasattr(first_conflict, 'get_entry_type_display') else first_conflict.entry_type
+                
+                return Response({
+                    "error": 1,
+                    "message": f"Cannot apply leave. You have already submitted {entry_type_display} attendance for {first_conflict.date.strftime('%Y-%m-%d')}. Please remove the manual entry first."
+                }, status=status.HTTP_400_BAD_REQUEST)
+            
             try:
                 # The serializer's validate() already checks balances.
                 # The serializer's create() handles linking the restricted_holiday if 'rh_id' is passed.
