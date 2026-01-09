@@ -643,6 +643,10 @@ class MonthlyAttendanceSerializer(serializers.Serializer):
                 "out_time": office_out_time_str or home_out_time_str,
                 "day_type": day_type,
                 "day_text": day_text,
+                "holiday": {
+                    "is_holiday": is_holiday,
+                    "name": holiday_dates.get(current_date, "")
+                } if is_holiday else None,
                 "admin_alert": getattr(attendance, 'admin_alert', 0) if attendance else (0 if is_future or is_holiday or is_weekend else 1),
                 "admin_alert_message": getattr(attendance, 'admin_alert_message', "") if attendance else ("" if is_future or is_holiday or is_weekend else ADMIN_ALERT_MESSAGE_MISSING_TIME),
                 "orignal_total_time": total_time,
@@ -1056,6 +1060,10 @@ class WeeklyTimesheetSerializer(serializers.Serializer):
                 "out_time": out_time_str,
                 "day_type": day_type,
                 "day_text": day_text if attendance else ("" if not is_holiday and not leave else day_text),
+                "holiday": {
+                    "is_holiday": is_holiday,
+                    "name": holiday_dates.get(current_date, "")
+                } if is_holiday else None,
                 "admin_alert": getattr(attendance, 'admin_alert', 0) if attendance else (0 if is_future or is_holiday or is_weekend else 1),
                 "admin_alert_message": getattr(attendance, 'admin_alert_message', "") if attendance else ("" if is_future or is_holiday or is_weekend else ADMIN_ALERT_MESSAGE_MISSING_TIME),
                 "orignal_total_time": total_time,
