@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from .models import DeviceType, Device, DeviceAssignment
+from .models import DeviceType, Device, DeviceAssignment, DeviceComment
 from employees.models import Employee
 
 
@@ -36,6 +36,48 @@ class DeviceTypeSerializer(serializers.ModelSerializer):
         read_only_fields = ['created_at', 'updated_at']
 
 
+class DeviceCommentSerializer(serializers.ModelSerializer):
+    """Serializer for device comments"""
+    employee_name = serializers.CharField(source='employee.get_full_name', read_only=True)
+    employee_photo = serializers.CharField(source='employee.photo', read_only=True)
+    photo_url = serializers.SerializerMethodField()
+    formatted_date = serializers.SerializerMethodField()
+
+    class Meta:
+        model = DeviceComment
+        fields = [
+            'id', 'device', 'employee', 'employee_name', 'employee_photo', 'photo_url',
+            'comment', 'created_at', 'formatted_date'
+        ]
+        read_only_fields = ['device', 'employee', 'created_at']
+    
+    def get_photo_url(self, obj):
+        """Construct full Cloudinary URL from stored photo path/public_id"""
+        if not obj.employee or not obj.employee.photo:
+            return None
+        
+        photo = obj.employee.photo
+        if photo.startswith('http'):
+            return photo
+            
+        import os
+        cloudinary_base = os.getenv('CLOUDINARY_BASE_URL', 'https://res.cloudinary.com/dhlyvqdoi/image/upload')
+        return f"{cloudinary_base}/{photo}"
+
+    def get_formatted_date(self, obj):
+        """Format: 2nd Jan 26, 3:35 pm"""
+        # We'll use a specific format as per UI screenshot
+        # "2nd Jan 26, 3:35 pm"
+        d = obj.created_at
+        day = d.day
+        if 4 <= day <= 20 or 24 <= day <= 30:
+            suffix = "th"
+        else:
+            suffix = ["st", "nd", "rd"][day % 10 - 1]
+        
+        return d.strftime(f"{day}{suffix} %b %y, %I:%M %p").lower()
+
+
 class DeviceListSerializer(serializers.ModelSerializer):
     """Lightweight serializer for device lists"""
     device_type_name = serializers.CharField(source='device_type.name', read_only=True)
@@ -44,6 +86,7 @@ class DeviceListSerializer(serializers.ModelSerializer):
     status_display = serializers.CharField(source='get_status_display', read_only=True)
     condition_display = serializers.CharField(source='get_condition_display', read_only=True)
     is_under_warranty = serializers.BooleanField(read_only=True)
+    recent_comments = serializers.SerializerMethodField()
 
     class Meta:
         model = Device
@@ -54,13 +97,18 @@ class DeviceListSerializer(serializers.ModelSerializer):
             'condition', 'condition_display',
             'employee', 'employee_id', 'employee_name',
             'purchase_date', 'warranty_expiry', 'is_under_warranty',
-            'is_active', 'created_at'
+            'recent_comments', 'is_active', 'created_at'
         ]
     
     def get_employee_name(self, obj):
         if obj.employee:
             return obj.employee.get_full_name()
         return None
+
+    def get_recent_comments(self, obj):
+        """Get actual comments from database"""
+        comments = obj.comments.all().select_related('employee')[:10]
+        return DeviceCommentSerializer(comments, many=True).data
 
 
 class DeviceDetailSerializer(serializers.ModelSerializer):
@@ -105,9 +153,21 @@ class DeviceDetailSerializer(serializers.ModelSerializer):
             'employee_id': obj.employee.employee_id,
             'full_name': obj.employee.get_full_name(),
             'email': obj.employee.email,
+            'photo': obj.employee.photo,
+            'photo_url': self._get_photo_url_logic(obj.employee.photo),
             'department': obj.employee.department.name if obj.employee.department else None,
             'designation': obj.employee.designation.name if obj.employee.designation else None,
         }
+
+    def _get_photo_url_logic(self, photo):
+        """Internal helper for photo URL construction"""
+        if not photo:
+            return None
+        if photo.startswith('http'):
+            return photo
+        import os
+        cloudinary_base = os.getenv('CLOUDINARY_BASE_URL', 'https://res.cloudinary.com/dhlyvqdoi/image/upload')
+        return f"{cloudinary_base}/{photo}"
 
     def get_created_by_name(self, obj):
         if obj.created_by:

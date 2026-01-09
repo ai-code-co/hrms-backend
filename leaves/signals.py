@@ -1,5 +1,6 @@
 from django.db.models.signals import post_save, pre_save
 from django.dispatch import receiver
+from decimal import Decimal
 from .models import Leave, LeaveBalance
 
 
@@ -26,7 +27,7 @@ def update_balance_on_leave_create(sender, instance, created, **kwargs):
                  # Only update RH specific pending
                  balance.rh_pending += int(instance.no_of_days)
             else:
-                balance.pending += instance.no_of_days
+                balance.pending += Decimal(str(instance.no_of_days))
                 
             balance.save()
             
@@ -72,29 +73,29 @@ def update_balance_on_status_change(sender, instance, **kwargs):
                  balance.rh_pending -= int(instance.no_of_days)
                  balance.rh_used += int(instance.no_of_days)
             else:
-                 balance.pending -= instance.no_of_days
-                 balance.used += instance.no_of_days
+                 balance.pending -= Decimal(str(instance.no_of_days))
+                 balance.used += Decimal(str(instance.no_of_days))
         
         elif old_status == 'Pending' and new_status == 'Rejected':
             # Restore balance (remove from pending)
             if instance.leave_type == 'Restricted Holiday':
                  balance.rh_pending -= int(instance.no_of_days)
             else:
-                 balance.pending -= instance.no_of_days
+                 balance.pending -= Decimal(str(instance.no_of_days))
         
         elif old_status == 'Approved' and new_status == 'Cancelled':
             # Restore balance (remove from used)
             if instance.leave_type == 'Restricted Holiday':
                  balance.rh_used -= int(instance.no_of_days)
             else:
-                 balance.used -= instance.no_of_days
+                 balance.used -= Decimal(str(instance.no_of_days))
         
         elif old_status == 'Pending' and new_status == 'Cancelled':
             # Restore balance (remove from pending)
             if instance.leave_type == 'Restricted Holiday':
                  balance.rh_pending -= int(instance.no_of_days)
             else:
-                 balance.pending -= instance.no_of_days
+                 balance.pending -= Decimal(str(instance.no_of_days))
         
         balance.save()
         

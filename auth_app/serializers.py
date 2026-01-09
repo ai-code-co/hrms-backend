@@ -100,6 +100,8 @@ class AdminCreateUserSerializer(serializers.ModelSerializer):
 
 class UserProfileSerializer(serializers.ModelSerializer):
     photo = serializers.SerializerMethodField()
+    photo_url = serializers.SerializerMethodField()
+    role_detail = serializers.SerializerMethodField()
 
     class Meta:
         model = User
@@ -110,6 +112,8 @@ class UserProfileSerializer(serializers.ModelSerializer):
             "first_name",
             "last_name",
             "photo",
+            "photo_url",
+            "role_detail",
             "phone_number",
             "gender",
             "job_title",
@@ -120,11 +124,31 @@ class UserProfileSerializer(serializers.ModelSerializer):
             "date_joined",
         ]
 
-    def get_photo(self, obj):
-        request = self.context.get("request")
-        if obj.photo and request:
-            return request.build_absolute_uri(obj.photo.url)
+    def get_role_detail(self, obj):
+        """Get role details from employee profile"""
+        if hasattr(obj, 'employee_profile') and obj.employee_profile.role:
+            from employees.serializers import RoleSerializer
+            return RoleSerializer(obj.employee_profile.role).data
         return None
+
+    def get_photo(self, obj):
+        """Get the Cloudinary path/public_id from employee profile"""
+        if hasattr(obj, 'employee_profile') and obj.employee_profile.photo:
+            return obj.employee_profile.photo
+        return None
+
+    def get_photo_url(self, obj):
+        """Construct full Cloudinary URL from employee profile's photo path"""
+        import os
+        photo_path = self.get_photo(obj)
+        if not photo_path:
+            return None
+        
+        if photo_path.startswith('http'):
+            return photo_path
+            
+        cloudinary_base = os.getenv('CLOUDINARY_BASE_URL', 'https://res.cloudinary.com/dhlyvqdoi/image/upload')
+        return f"{cloudinary_base}/{photo_path}"
 
 
 class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
@@ -193,8 +217,8 @@ class SetPasswordSerializer(serializers.Serializer):
 
 class ChangePasswordSerializer(serializers.Serializer):
     old_password = serializers.CharField()
-    new_password = serializers.CharField()
-    confirm_password = serializers.CharField()
+    new_password = serializers.CharField(min_length=8)
+    confirm_password = serializers.CharField(min_length=8)
 
     def validate(self, attrs):
         if attrs["new_password"] != attrs["confirm_password"]:

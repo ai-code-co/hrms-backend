@@ -25,7 +25,7 @@ from drf_yasg.utils import swagger_auto_schema
 from drf_yasg import openapi
 from django.shortcuts import get_object_or_404
 from .models import User
-from .utils import generate_password_setup_token, verify_email_token
+from .utils import generate_password_setup_token, verify_email_token, verify_password_reset_token
 from rest_framework import status
 from .utils import verify_password_setup_token
 from rest_framework_simplejwt.views import TokenRefreshView
@@ -137,7 +137,10 @@ class SetPasswordView(APIView):
         print("🔵 STEP 3: token =", token)
         print("🔵 STEP 4: raw password repr =", repr(password))
 
+        # Try Setup Token first, then Reset Token
         user_id = verify_password_setup_token(token)
+        if not user_id:
+            user_id = verify_password_reset_token(token)
 
         print("🔵 STEP 5: user_id from token =", user_id)
 

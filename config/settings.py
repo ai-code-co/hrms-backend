@@ -136,9 +136,13 @@ from corsheaders.defaults import default_headers
 CORS_ALLOW_ALL_ORIGINS = False
 CORS_ALLOWED_ORIGINS = [
     "https://hrms-frontend-wheat.vercel.app",
-    "https://*.vercel.app",
+    "https://hrms-frontend-bra49kox1-pycodes-projects-9010e858.vercel.app",
     "http://localhost:3000",
     "http://127.0.0.1:3000",
+]
+
+CORS_ALLOWED_ORIGIN_REGEXES = [
+    r"^https://.*\.vercel\.app$",
 ]
 
 CORS_ALLOW_HEADERS = list(default_headers) + [

@@ -1,151 +1,63 @@
-"""
-utils.py
-
-This file contains all token-related utilities.
-We intentionally use Django's TimestampSigner instead of JWT here
-because these tokens are:
-- short-lived
-- single-purpose
-- NOT used for authentication sessions
-
-Tokens generated here are:
-1. Email verification tokens
-2. Password setup tokens (first login)
-3. Password reset tokens (forgot password)
-"""
-
-
 from django.core import signing
+
+# ------------------------------------------------------------------
+# SIGNERS & CONSTANTS
+# ------------------------------------------------------------------
+
+# Separate signers for different purposes to prevent token cross-over
+RESET_SIGNER = signing.TimestampSigner(salt='password-reset')
+SETUP_SIGNER = signing.TimestampSigner(salt='password-setup')
+EMAIL_SIGNER = signing.TimestampSigner(salt='email-verification')
+
+RESET_TOKEN_EXPIRY = 24 * 60 * 60  # 24 hours
+SETUP_TOKEN_EXPIRY = 1 * 60 * 60   # 1 hour
+EMAIL_TOKEN_EXPIRY = 7 * 24 * 60 * 60  # 7 days
 
 # ------------------------------------------------------------------
 # PASSWORD RESET TOKEN (Forgot Password)
 # ------------------------------------------------------------------
 
-# Used when a user clicks "Forgot Password"
-# Short expiry to reduce security risk
-
-SIGNER = signing.TimestampSigner()
-TOKEN_EXPIRY_DAYS = 1  # 🔒 password reset = short expiry (24 hrs)
-
-
-"""
-    Generates a signed, time-limited token for password reset.
-
-    Args:
-        user_id (int): ID of the user
-
-    Returns:
-        str: Signed token containing user_id + timestamp
-"""
 def generate_password_reset_token(user_id):
-    return SIGNER.sign(user_id)
-"""
-    Verifies password reset token and checks expiry.
+    """Generates a signed, time-limited token for password reset."""
+    return RESET_SIGNER.sign(str(user_id))
 
-    Args:
-        token (str): Token received from email
-
-    Returns:
-        int | None: user_id if valid, else None
-"""
 def verify_password_reset_token(token):
+    """Verifies password reset token and checks expiry."""
     try:
-        user_id = SIGNER.unsign(
-            token,
-            max_age=TOKEN_EXPIRY_DAYS * 24 * 60 * 60
-        )
-        return user_id
-    except signing.BadSignature:
+        user_id = RESET_SIGNER.unsign(token, max_age=RESET_TOKEN_EXPIRY)
+        return int(user_id)
+    except (signing.BadSignature, signing.SignatureExpired, ValueError, TypeError):
         return None
-    except signing.SignatureExpired:
-        return None
-
-
-
 
 # ------------------------------------------------------------------
 # PASSWORD SETUP TOKEN (First-time password after verification)
 # ------------------------------------------------------------------
 
-# Used immediately after email verification
-# Short expiry because link is auto-redirected
-PASSWORD_SIGNER = signing.TimestampSigner()
-PASSWORD_TOKEN_EXPIRY = 60 * 60  # 1 hour
-
-"""
-    Generates token allowing user to set password for first time.
-
-    Args:
-        user_id (int)
-
-    Returns:
-        str
-    """
-
 def generate_password_setup_token(user_id):
-    return PASSWORD_SIGNER.sign(str(user_id))
+    """Generates token allowing user to set password for first time."""
+    return SETUP_SIGNER.sign(str(user_id))
 
-"""
-    Validates password setup token.
-
-    Args:
-        token (str)
-
-    Returns:
-        int | None
-    """
 def verify_password_setup_token(token):
+    """Validates password setup token."""
     try:
-        user_id = PASSWORD_SIGNER.unsign(
-            token,
-            max_age=PASSWORD_TOKEN_EXPIRY
-        )
+        user_id = SETUP_SIGNER.unsign(token, max_age=SETUP_TOKEN_EXPIRY)
         return int(user_id)
-    except signing.BadSignature:
+    except (signing.BadSignature, signing.SignatureExpired, ValueError, TypeError):
         return None
-    except signing.SignatureExpired:
-        return None
-# email first time
 
 # ------------------------------------------------------------------
 # EMAIL VERIFICATION TOKEN
 # ------------------------------------------------------------------
 
-# Used when admin creates user
-
-SIGNER = signing.TimestampSigner()
-TOKEN_EXPIRY_DAYS = 7
-
-"""
-    Generates email verification token.
-
-    Args:
-        user_id (int)
-
-    Returns:
-        str
-    """
 def generate_email_token(user_id):
-    return SIGNER.sign(str(user_id))  # ensure string
-"""
-    Verifies email token and checks expiry.
-
-    Args:
-        token (str)
-
-    Returns:
-        int | None
-    """
+    """Generates email verification token."""
+    return EMAIL_SIGNER.sign(str(user_id))
 
 def verify_email_token(token):
+    """Verifies email token and checks expiry."""
     try:
-        user_id = SIGNER.unsign(
-            token,
-            max_age=TOKEN_EXPIRY_DAYS * 24 * 60 * 60
-        )
-        return int(user_id)  # 🔥 FIX IS HERE
-    except signing.BadSignature:
-        return None
-    except signing.SignatureExpired:
+        user_id = EMAIL_SIGNER.unsign(token, max_age=EMAIL_TOKEN_EXPIRY)
+        return int(user_id)
+    except (signing.BadSignature, signing.SignatureExpired, ValueError, TypeError):
         return None
 

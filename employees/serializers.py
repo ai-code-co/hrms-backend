@@ -1,3 +1,4 @@
+import os
 from rest_framework import serializers
 from .models import Employee, EmergencyContact, Education, WorkHistory, Role
 from departments.serializers import DepartmentSerializer, DesignationSerializer
@@ -5,11 +6,12 @@ from departments.serializers import DepartmentSerializer, DesignationSerializer
 
 class RoleSerializer(serializers.ModelSerializer):
     """Serializer for Role"""
+    role = serializers.CharField(source='name')
     
     class Meta:
         model = Role
         fields = [
-            'id', 'name', 'description',
+            'id', 'role', 'description',
             'can_view_all_employees', 'can_create_employees',
             'can_edit_all_employees', 'can_delete_employees',
             'can_view_subordinates', 'can_approve_leave',
@@ -91,6 +93,7 @@ class EmployeeDetailSerializer(serializers.ModelSerializer):
     emergency_contacts = EmergencyContactSerializer(many=True, read_only=True)
     educations = EducationSerializer(many=True, read_only=True)
     work_histories = WorkHistorySerializer(many=True, read_only=True)
+    photo_url = serializers.SerializerMethodField()
     
     class Meta:
         model = Employee
@@ -102,7 +105,7 @@ class EmployeeDetailSerializer(serializers.ModelSerializer):
             # Personal
             'first_name', 'middle_name', 'last_name', 
             'date_of_birth', 'gender', 'marital_status',
-            'nationality', 'blood_group', 'photo',
+            'nationality', 'blood_group', 'photo', 'photo_url',
             # Contact
             'email', 'phone', 'alternate_phone',
             'address_line1', 'address_line2', 'city',
@@ -140,6 +143,17 @@ class EmployeeDetailSerializer(serializers.ModelSerializer):
                 'designation': obj.reporting_manager.designation.name if obj.reporting_manager.designation else None
             }
         return None
+
+    def get_photo_url(self, obj):
+        """Construct full Cloudinary URL from stored photo path/public_id"""
+        if not obj.photo:
+            return None
+        
+        if obj.photo.startswith('http'):
+            return obj.photo
+            
+        cloudinary_base = os.getenv('CLOUDINARY_BASE_URL', 'https://res.cloudinary.com/dhlyvqdoi/image/upload')
+        return f"{cloudinary_base}/{obj.photo}"
 
 
 class EmployeeCreateUpdateSerializer(serializers.ModelSerializer):
@@ -306,11 +320,6 @@ class EmployeeSelfDetailSerializer(EmployeeDetailSerializer):
             "aadhar_number",
             "passport_number",
             "driving_license",
-            # Sensitive financial information
-            "bank_name",
-            "account_number",
-            "ifsc_code",
-            "account_holder_name",
             # Redundant ID fields (we have _detail versions)
             "department",
             "designation",

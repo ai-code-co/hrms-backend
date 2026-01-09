@@ -913,6 +913,7 @@ class AttendanceViewSet(viewsets.ModelViewSet):
                 attendance.timesheet_approved_at = timezone.now()
             
             attendance.updated_by = user
+            attendance.entry_type = 'TIMESHEET'
             self._determine_day_type(attendance)
             
             from django.core.exceptions import ValidationError as DjangoValidationError
@@ -1041,7 +1042,7 @@ class AttendanceViewSet(viewsets.ModelViewSet):
                         attendance.timesheet_approved_by = user
                     if hasattr(attendance, 'timesheet_approved_at'):
                         attendance.timesheet_approved_at = timezone.now()
-            
+            attendance.entry_type = 'MANUAL'
             self._determine_day_type(attendance)
             attendance.save()
         

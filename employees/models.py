@@ -121,11 +121,11 @@ class Employee(models.Model):
     )
     nationality = models.CharField(max_length=50, blank=True)
     blood_group = models.CharField(max_length=5, blank=True)
-    photo = models.ImageField(
-        upload_to='employee_photos/',
+    photo = models.CharField(
+        max_length=500,
         null=True,
         blank=True,
-        help_text="Employee profile photo"
+        help_text="Cloudinary URL or public ID for employee profile photo"
     )
     
     # ========== CONTACT INFORMATION ==========

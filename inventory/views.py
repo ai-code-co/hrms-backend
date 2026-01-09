@@ -13,7 +13,7 @@ try:
 except ImportError:
     HAS_DJANGO_FILTER = False
 
-from .models import DeviceType, Device, DeviceAssignment
+from .models import DeviceType, Device, DeviceAssignment, DeviceComment
 from .serializers import (
     DeviceTypeListSerializer,
     DeviceTypeSerializer,
@@ -22,7 +22,8 @@ from .serializers import (
     DeviceCreateUpdateSerializer,
     DeviceAssignmentSerializer,
     DeviceAssignSerializer,
-    DeviceUnassignSerializer
+    DeviceUnassignSerializer,
+    DeviceCommentSerializer
 )
 from .permissions import (
     IsAdminManagerOrHR,
@@ -276,14 +277,14 @@ class DeviceViewSet(viewsets.ModelViewSet):
         """
         user = request.user
         
-        if not hasattr(user, 'employee'):
+        if not hasattr(user, 'employee_profile'):
             return Response({
                 "error": 1,
                 "message": "User must have an employee profile"
             }, status=status.HTTP_400_BAD_REQUEST)
         
         assignments = DeviceAssignment.objects.filter(
-            employee=user.employee
+            employee=user.employee_profile
         ).select_related(
             'device', 'device__device_type', 'assigned_by'
         ).order_by('-assigned_date')
