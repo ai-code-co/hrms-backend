@@ -26,6 +26,12 @@ class Attendance(models.Model):
         ('', 'No Extra Time'),
     ]
 
+    ENTRY_TYPE_CHOICES = [
+        ('REGULAR', 'Regular'),
+        ('TIMESHEET', 'Timesheet'),
+        ('MANUAL', 'Manual'),
+    ]
+
     employee = models.ForeignKey(
         Employee,
         on_delete=models.CASCADE,
@@ -108,6 +114,12 @@ class Attendance(models.Model):
     timesheet_approved_at = models.DateTimeField(null=True, blank=True)
     timesheet_admin_notes = models.TextField(blank=True)
     tracker_screenshot = models.CharField(max_length=500, null=True, blank=True, help_text="Cloudinary public ID / path for the screenshot")
+
+    entry_type = models.CharField(
+        max_length=20,
+        choices=ENTRY_TYPE_CHOICES,
+        default='REGULAR'
+    )
 
     # Audit
     created_at = models.DateTimeField(auto_now_add=True)

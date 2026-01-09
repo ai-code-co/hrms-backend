@@ -204,7 +204,7 @@ class AttendanceDetailSerializer(serializers.ModelSerializer):
             # Employee
             'employee', 'employee_detail',
             # System
-            'id', 'created_at', 'updated_at'
+            'id', 'created_at', 'updated_at', 'entry_type'
         ]
     
     def get_full_date(self, obj):
@@ -591,6 +591,7 @@ class MonthlyAttendanceSerializer(serializers.Serializer):
             elif attendance: day_text = attendance.day_text or attendance.text
             
             day_record = {
+                "id": attendance.id if attendance else None,
                 "full_date": current_date.strftime("%Y-%m-%d"),
                 "date": f"{day:02d}",
                 "day": day_name,
@@ -610,7 +611,9 @@ class MonthlyAttendanceSerializer(serializers.Serializer):
                 "leave_id": leave.id if leave else None,
                 "leave_type": leave.leave_type if leave else "",
                 "is_restricted_holiday": is_rh,
-                "is_partial_leave": is_partial
+                "is_partial_leave": is_partial,
+                "entry_type": attendance.entry_type if attendance else "REGULAR",
+                "entry_type_display": attendance.get_entry_type_display() if attendance else "Regular"
             }
             attendance_array.append(day_record)
         
@@ -765,6 +768,16 @@ class WeeklyTimesheetSubmitSerializer(serializers.Serializer):
             if errors:
                 raise serializers.ValidationError(errors)
         
+        # 9-hour limit validation
+        try:
+            total_time_float = float(data.get('total_time', 0))
+            if total_time_float > 9.0:
+                raise serializers.ValidationError({
+                    'total_time': 'Total work time cannot exceed 9 hours.'
+                })
+        except ValueError:
+            pass # total_time format error will be caught by other logic or float conversion
+            
         return data
     
     def parse_time_string(self, time_str, date):
@@ -912,6 +925,8 @@ class WeeklyTimesheetSerializer(serializers.Serializer):
             
             # Build day record
             day_record = {
+                "id": attendance.id if attendance else None,
+                "attendance_id": attendance.id if attendance else None,
                 "full_date": current_date.strftime(DATE_FORMAT),
                 "date": current_date.strftime(DAY_NUMBER_FORMAT),
                 "day": day_name,
@@ -927,6 +942,8 @@ class WeeklyTimesheetSerializer(serializers.Serializer):
                 "in_time": in_time_str,
                 "out_time": out_time_str,
                 "day_type": day_type,
+                "entry_type": getattr(attendance, 'entry_type', 'REGULAR') if attendance else (0 if is_future or is_holiday or is_weekend else 'REGULAR'),
+                "entry_type_display": attendance.get_entry_type_display() if attendance and hasattr(attendance, 'get_entry_type_display') else ("Regular" if is_future or is_holiday or is_weekend else "Regular"),
                 "admin_alert": getattr(attendance, 'admin_alert', 0) if attendance else (0 if is_future or is_holiday or is_weekend else 1),
                 "admin_alert_message": getattr(attendance, 'admin_alert_message', "") if attendance else ("" if is_future or is_holiday or is_weekend else ADMIN_ALERT_MESSAGE_MISSING_TIME),
             }
@@ -975,6 +992,25 @@ class UpdateSessionSerializer(serializers.Serializer):
         return timezone.make_aware(dt)
 
     def validate(self, data):
-        """Verify times are logical"""
-        # Actual validation happens in create/update logic using parse_time_string
+        """Verify times are logical and don't exceed 9 hours"""
+        in_time_str = data.get('in_time')
+        out_time_str = data.get('out_time')
+        date = data.get('date')
+        
+        if in_time_str and out_time_str and date:
+            try:
+                in_time = self.parse_time_string(in_time_str, date)
+                out_time = self.parse_time_string(out_time_str, date)
+                
+                if out_time <= in_time:
+                    raise serializers.ValidationError("Out time must be after in time.")
+                
+                duration_seconds = (out_time - in_time).total_seconds()
+                if duration_seconds > 9 * 3600:
+                    raise serializers.ValidationError("Total duration cannot exceed 9 hours.")
+            except serializers.ValidationError as e:
+                raise e
+            except Exception as e:
+                raise serializers.ValidationError(f"Error validating times: {str(e)}")
+                
         return data
