@@ -608,9 +608,9 @@ class MonthlyAttendanceSerializer(serializers.Serializer):
                     "status_display": attendance.get_timesheet_status_display(),
                     "comments": attendance.text or attendance.day_text or "",
                     "file": file_url,
-                    "submitted_at": format_datetime_to_iso(attendance.timesheet_submitted_at),
-                    "approved_at": format_datetime_to_iso(attendance.timesheet_approved_at),
-                    "admin_notes": attendance.timesheet_admin_notes
+                    "submitted_at": format_datetime_to_iso(getattr(attendance, 'timesheet_submitted_at', None)),
+                    "approved_at": format_datetime_to_iso(getattr(attendance, 'timesheet_approved_at', None)),
+                    "admin_notes": getattr(attendance, 'timesheet_admin_notes', '')
                 }
 
             leave_record = None
@@ -628,20 +628,23 @@ class MonthlyAttendanceSerializer(serializers.Serializer):
 
             day_record = {
                 "id": attendance.id if attendance else None,
-                "full_date": current_date.strftime("%Y-%m-%d"),
-                "date": f"{day:02d}",
+                "attendance_id": attendance.id if attendance else None,
+                "full_date": current_date.strftime(DATE_FORMAT),
+                "date": current_date.strftime(DAY_NUMBER_FORMAT),
                 "day": day_name,
                 "office_working_hours": office_hours,
-                "day_type": day_type,
-                "day_text": day_text,
-                "in_time": office_in_time_str or home_in_time_str,
-                "out_time": office_out_time_str or home_out_time_str,
+                "total_hours": total_time_str,
                 "total_time": total_time_str,
                 "extra_time": extra_time_str,
                 "submission": submission,
                 "leave": leave_record,
-                "admin_alert": 0, # Simplified for now
-                "admin_alert_message": "",
+                "is_working_from_home": getattr(attendance, 'is_working_from_home', False) if attendance else False,
+                "in_time": office_in_time_str or home_in_time_str,
+                "out_time": office_out_time_str or home_out_time_str,
+                "day_type": day_type,
+                "day_text": day_text,
+                "admin_alert": getattr(attendance, 'admin_alert', 0) if attendance else (0 if is_future or is_holiday or is_weekend else 1),
+                "admin_alert_message": getattr(attendance, 'admin_alert_message', "") if attendance else ("" if is_future or is_holiday or is_weekend else ADMIN_ALERT_MESSAGE_MISSING_TIME),
                 "orignal_total_time": total_time,
                 "isDayBeforeJoining": is_before_joining,
             }
@@ -1052,8 +1055,11 @@ class WeeklyTimesheetSerializer(serializers.Serializer):
                 "in_time": in_time_str,
                 "out_time": out_time_str,
                 "day_type": day_type,
+                "day_text": day_text if attendance else ("" if not is_holiday and not leave else day_text),
                 "admin_alert": getattr(attendance, 'admin_alert', 0) if attendance else (0 if is_future or is_holiday or is_weekend else 1),
                 "admin_alert_message": getattr(attendance, 'admin_alert_message', "") if attendance else ("" if is_future or is_holiday or is_weekend else ADMIN_ALERT_MESSAGE_MISSING_TIME),
+                "orignal_total_time": total_time,
+                "isDayBeforeJoining": is_before_joining,
             }
             
             attendance_array.append(day_record)
