@@ -121,6 +121,14 @@ class Attendance(models.Model):
         default='REGULAR'
     )
 
+    leave = models.ForeignKey(
+        'leaves.Leave',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='attendances'
+    )
+
     # Audit
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
