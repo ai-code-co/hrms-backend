@@ -23,7 +23,8 @@ from .serializers import (
     DeviceAssignmentSerializer,
     DeviceAssignSerializer,
     DeviceUnassignSerializer,
-    DeviceCommentSerializer
+    DeviceCommentSerializer,
+    DeviceSubmitAuditSerializer
 )
 from .permissions import (
     IsAdminManagerOrHR,
@@ -233,6 +234,77 @@ class DeviceViewSet(viewsets.ModelViewSet):
     # ═══════════════════════════════════════════════════════════
     # EMPLOYEE SELF-SERVICE ENDPOINTS (All authenticated users)
     # ═══════════════════════════════════════════════════════════
+
+    @action(detail=True, methods=['post'], url_path='submit-audit')
+    def submit_audit(self, request, pk=None):
+        """
+        Submit a monthly inventory audit for an assigned device
+        POST /api/inventory/devices/{id}/submit-audit/
+        Body: {"comment": "...", "condition": "good", "status": "working"}
+        """
+        device = self.get_object()
+        user = request.user
+
+        # 1. Permission Check: Must be assigned to this employee
+        if not hasattr(user, 'employee_profile') or device.employee != user.employee_profile:
+            return Response({
+                "error": 1,
+                "message": "You can only audit devices currently assigned to you."
+            }, status=status.HTTP_403_FORBIDDEN)
+
+        # 2. Duplicate Check: Only one audit per month
+        now = timezone.now()
+        start_of_month = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+        
+        existing_audit = DeviceComment.objects.filter(
+            device=device,
+            employee=user.employee_profile,
+            created_at__gte=start_of_month,
+            comment__startswith='[Monthly Audit]'
+        ).exists()
+
+        if existing_audit:
+            return Response({
+                "error": 1,
+                "message": f"You have already submitted an audit for this device ({device.serial_number}) this month."
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+        # 3. Validate Data
+        serializer = DeviceSubmitAuditSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response({
+                "error": 1,
+                "message": "Validation failed",
+                "errors": serializer.errors
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+        # 4. Process Audit
+        comment_text = serializer.validated_data['comment']
+        condition = serializer.validated_data['condition']
+        status_val = serializer.validated_data['status']
+
+        # Update device state
+        device.condition = condition
+        device.status = status_val
+        device.updated_by = user
+        device.save()
+
+        # Create audit trail comment
+        audit_comment = DeviceComment.objects.create(
+            device=device,
+            employee=user.employee_profile,
+            comment=f"[Monthly Audit] {comment_text}"
+        )
+
+        return Response({
+            "error": 0,
+            "message": "Monthly audit submitted successfully. Device status updated.",
+            "data": {
+                "audit_id": audit_comment.id,
+                "condition": device.get_condition_display(),
+                "status": device.get_status_display()
+            }
+        }, status=status.HTTP_201_CREATED)
 
     @action(detail=False, methods=['get'], url_path='my-devices')
     def my_devices(self, request):
@@ -552,4 +624,55 @@ class InventoryDashboardViewSet(viewsets.ViewSet):
         return Response({
             "error": 0,
             "data": serializer.data
+        })
+
+    @action(detail=False, methods=['get'], url_path='audit-status')
+    def audit_status(self, request):
+        """
+        Get status of monthly audits for all assigned devices
+        GET /api/inventory/dashboard/audit-status/
+        """
+        now = timezone.now()
+        start_of_month = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+        
+        # Get all assigned devices
+        assigned_devices = Device.objects.filter(
+            employee__isnull=False,
+            is_active=True
+        ).select_related('device_type', 'employee')
+        
+        # Get all audit comments for this month
+        audit_comments = DeviceComment.objects.filter(
+            created_at__gte=start_of_month,
+            comment__startswith='[Monthly Audit]'
+        ).values('device_id', 'created_at', 'comment')
+        
+        # Map device_id to audit info
+        audit_map = {a['device_id']: a for a in audit_comments}
+        
+        results = []
+        for device in assigned_devices:
+            audit = audit_map.get(device.id)
+            results.append({
+                'device_id': device.id,
+                'serial_number': device.serial_number,
+                'device_type': device.device_type.name,
+                'employee_name': device.employee.get_full_name(),
+                'employee_id': device.employee.employee_id,
+                'is_audited': audit is not None,
+                'audit_date': audit['created_at'] if audit else None,
+                'audit_comment': audit['comment'] if audit else None,
+                'current_condition': device.get_condition_display(),
+                'current_status': device.get_status_display()
+            })
+            
+        return Response({
+            "error": 0,
+            "data": {
+                "month": now.strftime('%B %Y'),
+                "total_assigned": assigned_devices.count(),
+                "audited_count": len(audit_map),
+                "pending_count": assigned_devices.count() - len(audit_map),
+                "details": results
+            }
         })

@@ -300,3 +300,13 @@ class DeviceUnassignSerializer(serializers.Serializer):
         required=False,
         help_text="Device condition at return"
     )
+
+class DeviceSubmitAuditSerializer(serializers.Serializer):
+    comment = serializers.CharField(required=True, max_length=1000)
+    condition = serializers.ChoiceField(choices=Device.CONDITION_CHOICES, required=True)
+    status = serializers.ChoiceField(choices=Device.STATUS_CHOICES, required=True)
+
+    def validate_comment(self, value):
+        if not value.strip():
+            raise serializers.ValidationError("Comment cannot be empty.")
+        return value

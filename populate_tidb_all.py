@@ -121,7 +121,16 @@ def populate_all_data():
         if emp_created:
             print(f"   └── 👷 Created Employee: {emp.employee_id}")
         else:
-            print(f"   └── 👷 Found Employee: {emp.employee_id}")
+            print(f"   └── 👷 Found Employee: {emp.employee_id}. Updating addresses...")
+            emp.address_line1 = '123 Current St'
+            emp.city = 'New Delhi'
+            emp.state = 'Delhi'
+            emp.postal_code = '110001'
+            emp.address_line1_2 = '456 Permanent Ave'
+            emp.city_2 = 'Lucknow'
+            emp.state_2 = 'Uttar Pradesh'
+            emp.postal_code_2 = '226001'
+            emp.save()
         
         # --- 5. Education ---
         if not Education.objects.filter(employee=emp).exists():
