@@ -593,11 +593,18 @@ class MonthlyAttendanceSerializer(serializers.Serializer):
                 except: file_url = ""
                 file_id = str(attendance.id)
             
+            # Should we show leave info on this specific date?
+            # Show if it's an RH OR if it's a normal working day (not weekend, not holiday)
+            show_leave_info = is_rh or (not is_weekend and not is_holiday)
+            
             # Day text priority: Holiday name > Leave reason > Check-in notes
             day_text = ""
-            if is_holiday: day_text = holiday_dates.get(current_date, "")
-            elif leave: day_text = leave.reason
-            elif attendance: day_text = attendance.day_text or attendance.text
+            if is_holiday: 
+                day_text = holiday_dates.get(current_date, "")
+            elif leave and show_leave_info: 
+                day_text = leave.reason
+            elif attendance: 
+                day_text = attendance.day_text or attendance.text
             
             submission = None
             if attendance and (attendance.entry_type != 'REGULAR' or attendance.is_working_from_home):
@@ -616,7 +623,7 @@ class MonthlyAttendanceSerializer(serializers.Serializer):
                 }
 
             leave_record = None
-            if leave:
+            if leave and show_leave_info:
                 leave_record = {
                     "id": leave.id,
                     "type": leave.leave_type,
@@ -649,8 +656,8 @@ class MonthlyAttendanceSerializer(serializers.Serializer):
                     "is_holiday": is_holiday,
                     "name": holiday_dates.get(current_date, "")
                 } if is_holiday else None,
-                "admin_alert": getattr(attendance, 'admin_alert', 0) if attendance else (0 if is_future or is_holiday or is_weekend else 1),
-                "admin_alert_message": getattr(attendance, 'admin_alert_message', "") if attendance else ("" if is_future or is_holiday or is_weekend else ADMIN_ALERT_MESSAGE_MISSING_TIME),
+                "admin_alert": getattr(attendance, 'admin_alert', 0) if attendance else (0 if is_future or is_holiday or is_weekend or (leave and leave.status in ['Approved', 'APPROVED']) else 1),
+                "admin_alert_message": getattr(attendance, 'admin_alert_message', "") if attendance else ("" if is_future or is_holiday or is_weekend or (leave and leave.status in ['Approved', 'APPROVED']) else ADMIN_ALERT_MESSAGE_MISSING_TIME),
                 "orignal_total_time": total_time,
                 "isDayBeforeJoining": is_before_joining,
             }
@@ -689,8 +696,7 @@ class MonthlyAttendanceSerializer(serializers.Serializer):
             
             if l and l_status in ['Approved', 'APPROVED']:
                 if i_partial: total_working_days_expected += 0.5
-                elif i_rh: total_working_days_expected += 1.0
-                # Full day leave = 0 hours expected
+                # Full day leave (including RH) = 0 hours expected
             else:
                 total_working_days_expected += 1.0
         
@@ -923,6 +929,9 @@ class WeeklyTimesheetSerializer(serializers.Serializer):
             else:
                 leave_info = get_leave_for_date(current_date, leaves_list)
                 leave, is_rh, is_partial, partial_type = leave_info
+            
+            # Should we show leave info on this specific date?
+            show_leave_info = is_rh or (not is_weekend and not is_holiday)
 
             if is_before_joining:
                 day_type = "BEFORE_JOINING"
@@ -1037,12 +1046,15 @@ class WeeklyTimesheetSerializer(serializers.Serializer):
 
             # Get leave info for record - already fetched in day_type logic
             leave_record = None
-            if leave:
+            if leave and show_leave_info:
                 leave_record = {
                     "id": leave.id,
                     "type": leave.leave_type,
                     "status": leave.status,
                     "reason": leave.reason,
+                    "is_rh": is_rh,
+                    "is_partial": is_partial,
+                    "partial_type": partial_type,
                     "no_of_days": float(leave.no_of_days)
                 }
 
@@ -1063,13 +1075,13 @@ class WeeklyTimesheetSerializer(serializers.Serializer):
                 "in_time": in_time_str if (not attendance or attendance.entry_type == 'REGULAR' or (hasattr(attendance, 'timesheet_status') and attendance.timesheet_status == 'APPROVED')) else "",
                 "out_time": out_time_str if (not attendance or attendance.entry_type == 'REGULAR' or (hasattr(attendance, 'timesheet_status') and attendance.timesheet_status == 'APPROVED')) else "",
                 "day_type": day_type,
-                "day_text": day_text if attendance else ("" if not is_holiday and not leave else day_text),
+                "day_text": day_text if attendance else (holiday_dates.get(current_date, "") if is_holiday else (leave.reason if leave and show_leave_info else "")),
                 "holiday": {
                     "is_holiday": is_holiday,
                     "name": holiday_dates.get(current_date, "")
                 } if is_holiday else None,
-                "admin_alert": getattr(attendance, 'admin_alert', 0) if attendance else (0 if is_future or is_holiday or is_weekend else 1),
-                "admin_alert_message": getattr(attendance, 'admin_alert_message', "") if attendance else ("" if is_future or is_holiday or is_weekend else ADMIN_ALERT_MESSAGE_MISSING_TIME),
+                "admin_alert": getattr(attendance, 'admin_alert', 0) if attendance else (0 if is_future or is_holiday or is_weekend or (leave and leave.status in ['Approved', 'APPROVED']) else 1),
+                "admin_alert_message": getattr(attendance, 'admin_alert_message', "") if attendance else ("" if is_future or is_holiday or is_weekend or (leave and leave.status in ['Approved', 'APPROVED']) else ADMIN_ALERT_MESSAGE_MISSING_TIME),
                 "orignal_total_time": total_time,
                 "isDayBeforeJoining": is_before_joining,
             }
