@@ -676,3 +676,68 @@ class InventoryDashboardViewSet(viewsets.ViewSet):
                 "details": results
             }
         })
+
+    @action(detail=True, methods=['get'], url_path='user-audit-status')
+    def user_audit_status(self, request, pk=None):
+        """
+        Get audit status of all devices assigned to a specific employee
+        GET /api/inventory/dashboard/{employee_id}/user-audit-status/
+        """
+        # 1. Permission Check
+        user = request.user
+        target_employee_id = pk
+        
+        # Check if user is viewing self or is Admin/HR
+        is_admin_hr = False
+        if user.is_superuser or user.is_staff:
+            is_admin_hr = True
+        elif hasattr(user, 'employee_profile') and user.employee_profile:
+            emp = user.employee_profile
+            if emp.designation and emp.designation.level and emp.designation.level <= 3:
+                is_admin_hr = True
+            
+            # If not admin/hr, must match the requested pk
+            if not is_admin_hr and str(emp.id) != str(target_employee_id):
+                return Response({
+                    "error": 1,
+                    "message": "You do not have permission to view other employees' audit status."
+                }, status=status.HTTP_403_FORBIDDEN)
+        
+        # 2. Logic
+        now = timezone.now()
+        start_of_month = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+        
+        devices = Device.objects.filter(
+            employee_id=target_employee_id,
+            is_active=True
+        ).select_related('device_type')
+        
+        audit_comments = DeviceComment.objects.filter(
+            device__in=devices,
+            created_at__gte=start_of_month,
+            comment__startswith='[Monthly Audit]'
+        ).values_list('device_id', flat=True)
+        
+        audited_device_ids = set(audit_comments)
+        
+        device_results = []
+        all_audited = True
+        
+        for device in devices:
+            is_audited = device.id in audited_device_ids
+            if not is_audited:
+                all_audited = False
+            
+            device_results.append({
+                "deviceId": device.serial_number or f"DEV_{device.id:03d}",
+                "isAudited": is_audited,
+                "deviceName": f"{device.brand} {device.model_name}" if device.brand else device.device_type.name
+            })
+            
+        return Response({
+            "error": 0,
+            "data": {
+                "allItemsAudited": all_audited and devices.exists(),
+                "devices": device_results
+            }
+        })
