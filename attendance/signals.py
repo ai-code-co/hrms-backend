@@ -27,6 +27,11 @@ def sync_leave_to_attendance(sender, instance, created, **kwargs):
                 day_type = 'WORKING_DAY' # Or maybe a new 'HALF_DAY' type if needed
 
             # Update or create attendance record
+            # Skip weekends (Sat=5, Sun=6)
+            if current_date.weekday() >= 5:
+                current_date += timedelta(days=1)
+                continue
+
             Attendance.objects.update_or_create(
                 employee=instance.employee,
                 date=current_date,

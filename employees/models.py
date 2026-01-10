@@ -147,6 +147,14 @@ class Employee(models.Model):
     country = models.CharField(max_length=50, default='India')
     postal_code = models.CharField(max_length=10, blank=True)
     
+    # Secondary / Permanent Address
+    address_line1_2 = models.CharField(max_length=200, blank=True)
+    address_line2_2 = models.CharField(max_length=200, blank=True)
+    city_2 = models.CharField(max_length=50, blank=True)
+    state_2 = models.CharField(max_length=50, blank=True)
+    country_2 = models.CharField(max_length=50, default='India')
+    postal_code_2 = models.CharField(max_length=10, blank=True)
+    
     # ========== PROFESSIONAL INFORMATION ==========
     role = models.ForeignKey(
         Role,

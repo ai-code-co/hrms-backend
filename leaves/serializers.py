@@ -1,7 +1,8 @@
 from rest_framework import serializers
 from .models import Leave, LeaveQuota, LeaveBalance, RestrictedHoliday
 from django.utils import timezone
-from datetime import datetime
+from datetime import datetime, date
+from .utils import calculate_working_days
 import os
  
 class RestrictedHolidaySerializer(serializers.ModelSerializer):
@@ -134,6 +135,39 @@ class LeaveSerializer(serializers.ModelSerializer):
         # Get current year
         current_year = timezone.now().year
         
+        # Override no_of_days based on working days calculation
+        # But only if it's a full-day leave. If day_status is set, it's a half-day.
+        day_status = data.get('day_status')
+        to_date = data.get('to_date')
+        
+        if day_status in ['First Half', 'Second Half']:
+            # For half day, from_date should equal to_date
+            if from_date != to_date:
+                raise serializers.ValidationError({
+                    'to_date': 'For half-day leaves, from_date and to_date must be the same.'
+                })
+            
+            # Check if it's a weekend or holiday
+            if calculate_working_days(from_date, from_date) == 0:
+                 raise serializers.ValidationError({
+                    'from_date': 'Cannot apply for half-day leave on a weekend or holiday.'
+                })
+            
+            no_of_days = 0.5
+        else:
+            # Calculate working days between dates
+            calculated_days = calculate_working_days(from_date, to_date)
+            
+            if calculated_days == 0:
+                raise serializers.ValidationError({
+                    'non_field_errors': 'All selected dates are weekends or holidays. No leave needed.'
+                })
+            
+            no_of_days = float(calculated_days)
+            
+        # Update no_of_days in validated data
+        data['no_of_days'] = no_of_days
+
         # Check leave balance
         try:
             # Special case: Restricted Holiday balance is often tracked on the Casual Leave record

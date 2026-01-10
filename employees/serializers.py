@@ -110,6 +110,8 @@ class EmployeeDetailSerializer(serializers.ModelSerializer):
             'email', 'phone', 'alternate_phone',
             'address_line1', 'address_line2', 'city',
             'state', 'country', 'postal_code',
+            'address_line1_2', 'address_line2_2', 'city_2',
+            'state_2', 'country_2', 'postal_code_2',
             # Professional
             'department', 'department_detail', 'designation', 
             'designation_detail', 'reporting_manager', 'manager_detail',
@@ -168,6 +170,8 @@ class EmployeeCreateUpdateSerializer(serializers.ModelSerializer):
             'email', 'phone', 'alternate_phone',
             'address_line1', 'address_line2', 'city',
             'state', 'country', 'postal_code',
+            'address_line1_2', 'address_line2_2', 'city_2',
+            'state_2', 'country_2', 'postal_code_2',
             'role', 'department', 'designation', 'reporting_manager',
             'employee_type', 'employment_status', 'joining_date',
             'probation_end_date', 'confirmation_date', 'work_location',
@@ -296,7 +300,6 @@ class EmployeeCreateUpdateSerializer(serializers.ModelSerializer):
                 })
         
         return data
-
 
 
 class EmployeeAdminDetailSerializer(EmployeeDetailSerializer):

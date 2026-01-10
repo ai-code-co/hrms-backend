@@ -261,7 +261,7 @@ class VerifyEmailView(APIView):
         user.save()
 
           # 🔐 Generate password setup token
-        pwd_token = generate_password_setup_token(user.id)
+        pwd_token = generate_password_setup_token(user)
 
 #  🚀 Redirect to frontend change-password page
         return redirect(

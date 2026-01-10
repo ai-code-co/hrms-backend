@@ -24,7 +24,7 @@ load_dotenv()
     """
 
 def send_password_reset_email(user):
-    token = generate_password_reset_token(user.id)
+    token = generate_password_reset_token(user)
 
     reset_url = f"{os.environ.get('BASE_URL_FRONTEND')}/reset-password?token={token}"
     # 👆 frontend URL (React/Vue/etc)
