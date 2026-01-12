@@ -23,6 +23,7 @@ from .serializers import (
     EmployeeAdminDetailSerializer,
     EmployeeSelfDetailSerializer,
     EmployeeManagerDetailSerializer,
+    EmployeeLookupSerializer,
 )
 
 from .permissions import EmployeeObjectPermission
@@ -155,6 +156,44 @@ class EmployeeViewSet(viewsets.ModelViewSet):
         # Employee & others → NO list access
         return Employee.objects.none()
     
+
+
+    @action(detail=False, methods=['get'], url_path='lookup-list')
+    def lookup_list(self, request):
+        """
+        Get a lightweight list of employees for lookup selection.
+        Admins/HR: All active employees
+        Managers: Only direct reportees
+        """
+        user = request.user
+        queryset = Employee.objects.filter(is_active=True)
+
+        # Apply visibility filters
+        is_admin_hr = user.is_superuser or user.is_staff
+        if not is_admin_hr and hasattr(user, 'employee_profile'):
+            emp = user.employee_profile
+            if emp.role and emp.role.can_view_all_employees:
+                is_admin_hr = True
+            
+        if not is_admin_hr:
+            if hasattr(user, 'employee_profile'):
+                emp = user.employee_profile
+                if emp.role and emp.role.can_view_subordinates:
+                    queryset = queryset.filter(reporting_manager=emp)
+                else:
+                    # Regular employees can't look up anyone else
+                    return Response({
+                        "error": 0,
+                        "data": []
+                    })
+            else:
+                return Response({"error": 0, "data": []})
+
+        serializer = EmployeeLookupSerializer(queryset, many=True)
+        return Response({
+            "error": 0,
+            "data": serializer.data
+        })
 
     def perform_create(self, serializer):
         user = self.request.user
@@ -416,22 +455,6 @@ class EmployeeViewSet(viewsets.ModelViewSet):
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 
-# class EmergencyContactViewSet(viewsets.ModelViewSet):
-#     """ViewSet for Emergency Contact management"""
-#     queryset = EmergencyContact.objects.all()
-#     serializer_class = EmergencyContactSerializer
-#     permission_classes = [IsAuthenticated]
-#     filter_backends = [SearchFilter]
-#     if HAS_DJANGO_FILTER:
-#         filter_backends.insert(0, DjangoFilterBackend)
-#     filterset_fields = ['employee', 'is_primary'] if HAS_DJANGO_FILTER else []
-#     search_fields = ['name', 'phone', 'relationship']
-    
-#     def get_permissions(self):
-#         """Set permissions based on action"""
-#         if self.action in ['create', 'update', 'partial_update', 'destroy']:
-#             return [IsAuthenticated(), IsAdminUser()]
-#         return [IsAuthenticated()]
 class EmergencyContactViewSet(viewsets.ModelViewSet):
     """
     READ-ONLY.
@@ -443,24 +466,7 @@ class EmergencyContactViewSet(viewsets.ModelViewSet):
     http_method_names = ["get"]
 
 
-# class EducationViewSet(viewsets.ModelViewSet):
-#     """ViewSet for Education management"""
-#     queryset = Education.objects.all()
-#     serializer_class = EducationSerializer
-#     permission_classes = [IsAuthenticated]
-#     filter_backends = [SearchFilter, OrderingFilter]
-#     if HAS_DJANGO_FILTER:
-#         filter_backends.insert(0, DjangoFilterBackend)
-#     filterset_fields = ['employee', 'level', 'is_completed'] if HAS_DJANGO_FILTER else []
-#     search_fields = ['degree', 'institution', 'field_of_study']
-#     ordering_fields = ['end_date', 'start_date']
-#     ordering = ['-end_date']
-    
-#     def get_permissions(self):
-#         """Set permissions based on action"""
-#         if self.action in ['create', 'update', 'partial_update', 'destroy']:
-#             return [IsAuthenticated(), IsAdminUser()]
-#         return [IsAuthenticated()]
+
 class EducationViewSet(viewsets.ModelViewSet):
     """
     READ-ONLY.
@@ -472,24 +478,7 @@ class EducationViewSet(viewsets.ModelViewSet):
     http_method_names = ["get"]
 
 
-# class WorkHistoryViewSet(viewsets.ModelViewSet):
-#     """ViewSet for Work History management"""
-#     queryset = WorkHistory.objects.all()
-#     serializer_class = WorkHistorySerializer
-#     permission_classes = [IsAuthenticated]
-#     filter_backends = [SearchFilter, OrderingFilter]
-#     if HAS_DJANGO_FILTER:
-#         filter_backends.insert(0, DjangoFilterBackend)
-#     filterset_fields = ['employee', 'is_current'] if HAS_DJANGO_FILTER else []
-#     search_fields = ['company_name', 'job_title']
-#     ordering_fields = ['start_date', 'end_date']
-#     ordering = ['-end_date', '-start_date']
-    
-#     def get_permissions(self):
-#         """Set permissions based on action"""
-#         if self.action in ['create', 'update', 'partial_update', 'destroy']:
-#             return [IsAuthenticated(), IsAdminUser()]
-#         return [IsAuthenticated()]
+
 class WorkHistoryViewSet(viewsets.ModelViewSet):
     """
     READ-ONLY.
