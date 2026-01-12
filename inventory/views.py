@@ -626,11 +626,11 @@ class InventoryDashboardViewSet(viewsets.ViewSet):
             "data": serializer.data
         })
 
-    @action(detail=False, methods=['get'], url_path='audit-status')
-    def audit_status(self, request):
+    @action(detail=False, methods=['get'], url_path='audit-summary')
+    def audit_summary(self, request):
         """
-        Get status of monthly audits for all assigned devices
-        GET /api/inventory/dashboard/audit-status/
+        Get summary of monthly audits for all assigned devices
+        GET /api/inventory/audit-summary/
         """
         now = timezone.now()
         start_of_month = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
@@ -677,15 +677,26 @@ class InventoryDashboardViewSet(viewsets.ViewSet):
             }
         })
 
-    @action(detail=True, methods=['get'], url_path='user-audit-status')
-    def user_audit_status(self, request, pk=None):
+    @action(detail=False, methods=['get'], url_path='user-audit-status')
+    def user_audit_status(self, request):
         """
         Get audit status of all devices assigned to a specific employee
-        GET /api/inventory/dashboard/{employee_id}/user-audit-status/
+        GET /api/inventory/user-audit-status/?employee_id=123 (Optional for Admin)
         """
         # 1. Permission Check
         user = request.user
-        target_employee_id = pk
+        
+        # Determine target employee (from query param or self)
+        target_employee_id = request.query_params.get('employee_id')
+        
+        if not target_employee_id:
+            if hasattr(user, 'employee_profile') and user.employee_profile:
+                target_employee_id = user.employee_profile.id
+            else:
+                return Response({
+                    "error": 1,
+                    "message": "employee_id is required or user must have an employee profile."
+                }, status=status.HTTP_400_BAD_REQUEST)
         
         # Check if user is viewing self or is Admin/HR
         is_admin_hr = False
@@ -696,7 +707,7 @@ class InventoryDashboardViewSet(viewsets.ViewSet):
             if emp.designation and emp.designation.level and emp.designation.level <= 3:
                 is_admin_hr = True
             
-            # If not admin/hr, must match the requested pk
+            # If not admin/hr, must match the requested target_employee_id
             if not is_admin_hr and str(emp.id) != str(target_employee_id):
                 return Response({
                     "error": 1,
