@@ -5,6 +5,8 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.filters import SearchFilter, OrderingFilter
 from django.utils import timezone
 from django.db.models import Count, Q
+from drf_yasg.utils import swagger_auto_schema
+from drf_yasg import openapi
 
 # Optional django-filter import
 try:
@@ -235,12 +237,34 @@ class DeviceViewSet(viewsets.ModelViewSet):
     # EMPLOYEE SELF-SERVICE ENDPOINTS (All authenticated users)
     # ═══════════════════════════════════════════════════════════
 
+
+    @swagger_auto_schema(
+        operation_description="Submit a monthly inventory audit for an assigned device.",
+        request_body=DeviceSubmitAuditSerializer,
+        responses={
+            201: openapi.Response(
+                description="Audit submitted successfully",
+                examples={
+                    "application/json": {
+                        "error": 0,
+                        "message": "Monthly audit submitted successfully. Device status updated.",
+                        "data": {
+                            "audit_id": 1,
+                            "condition": "Excellent",
+                            "status": "Working"
+                        }
+                    }
+                }
+            ),
+            400: "Validation failed or duplicate audit",
+            403: "Permission denied"
+        }
+    )
     @action(detail=True, methods=['post'], url_path='submit-audit')
     def submit_audit(self, request, pk=None):
         """
-        Submit a monthly inventory audit for an assigned device
+        Submit a monthly inventory audit for an assigned device.
         POST /api/inventory/devices/{id}/submit-audit/
-        Body: {"comment": "...", "condition": "good", "status": "working"}
         """
         device = self.get_object()
         user = request.user
@@ -564,7 +588,7 @@ class InventoryDashboardViewSet(viewsets.ViewSet):
     def summary(self, request):
         """
         Get dashboard summary with all device types and their statistics
-        GET /api/inventory/dashboard/summary/
+        GET /api/inventory/summary/
         """
         device_types = DeviceType.objects.filter(is_active=True).order_by('name')
         
@@ -626,11 +650,15 @@ class InventoryDashboardViewSet(viewsets.ViewSet):
             "data": serializer.data
         })
 
-    @action(detail=False, methods=['get'], url_path='audit-status')
-    def audit_status(self, request):
+    @swagger_auto_schema(
+        operation_description="Get summary of monthly audits for all assigned devices (HR/Admin view).",
+        responses={200: "Success"}
+    )
+    @action(detail=False, methods=['get'], url_path='audit-summary')
+    def audit_summary(self, request):
         """
-        Get status of monthly audits for all assigned devices
-        GET /api/inventory/dashboard/audit-status/
+        Get summary of monthly audits for all assigned devices
+        GET /api/inventory/audit-summary/
         """
         now = timezone.now()
         start_of_month = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
@@ -677,15 +705,57 @@ class InventoryDashboardViewSet(viewsets.ViewSet):
             }
         })
 
-    @action(detail=True, methods=['get'], url_path='user-audit-status')
-    def user_audit_status(self, request, pk=None):
+    @swagger_auto_schema(
+        operation_description="Get audit status of all devices assigned to a specific employee.",
+        manual_parameters=[
+            openapi.Parameter(
+                'employee_id', openapi.IN_QUERY, 
+                description="ID of the employee (optional if viewing self)", 
+                type=openapi.TYPE_INTEGER
+            )
+        ],
+        responses={
+            200: openapi.Response(
+                description="Success",
+                examples={
+                    "application/json": {
+                        "error": 0,
+                        "data": {
+                            "allItemsAudited": True,
+                            "devices": [
+                                {
+                                    "id": 1,
+                                    "serial_number": "SN123",
+                                    "isAudited": True,
+                                    "device_type_name": "Laptop"
+                                }
+                            ]
+                        }
+                    }
+                }
+            )
+        }
+    )
+    @action(detail=False, methods=['get'], url_path='user-audit-status')
+    def user_audit_status(self, request):
         """
         Get audit status of all devices assigned to a specific employee
-        GET /api/inventory/dashboard/{employee_id}/user-audit-status/
+        GET /api/inventory/user-audit-status/?employee_id=123 (Optional for Admin)
         """
         # 1. Permission Check
         user = request.user
-        target_employee_id = pk
+        
+        # Determine target employee (from query param or self)
+        target_employee_id = request.query_params.get('employee_id')
+        
+        if not target_employee_id:
+            if hasattr(user, 'employee_profile') and user.employee_profile:
+                target_employee_id = user.employee_profile.id
+            else:
+                return Response({
+                    "error": 1,
+                    "message": "employee_id is required or user must have an employee profile."
+                }, status=status.HTTP_400_BAD_REQUEST)
         
         # Check if user is viewing self or is Admin/HR
         is_admin_hr = False
@@ -696,7 +766,7 @@ class InventoryDashboardViewSet(viewsets.ViewSet):
             if emp.designation and emp.designation.level and emp.designation.level <= 3:
                 is_admin_hr = True
             
-            # If not admin/hr, must match the requested pk
+            # If not admin/hr, must match the requested target_employee_id
             if not is_admin_hr and str(emp.id) != str(target_employee_id):
                 return Response({
                     "error": 1,
