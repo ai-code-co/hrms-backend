@@ -5,6 +5,8 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.filters import SearchFilter, OrderingFilter
 from django.utils import timezone
 from django.db.models import Count, Q
+from drf_yasg.utils import swagger_auto_schema
+from drf_yasg import openapi
 
 # Optional django-filter import
 try:
@@ -235,12 +237,34 @@ class DeviceViewSet(viewsets.ModelViewSet):
     # EMPLOYEE SELF-SERVICE ENDPOINTS (All authenticated users)
     # ═══════════════════════════════════════════════════════════
 
+
+    @swagger_auto_schema(
+        operation_description="Submit a monthly inventory audit for an assigned device.",
+        request_body=DeviceSubmitAuditSerializer,
+        responses={
+            201: openapi.Response(
+                description="Audit submitted successfully",
+                examples={
+                    "application/json": {
+                        "error": 0,
+                        "message": "Monthly audit submitted successfully. Device status updated.",
+                        "data": {
+                            "audit_id": 1,
+                            "condition": "Excellent",
+                            "status": "Working"
+                        }
+                    }
+                }
+            ),
+            400: "Validation failed or duplicate audit",
+            403: "Permission denied"
+        }
+    )
     @action(detail=True, methods=['post'], url_path='submit-audit')
     def submit_audit(self, request, pk=None):
         """
-        Submit a monthly inventory audit for an assigned device
+        Submit a monthly inventory audit for an assigned device.
         POST /api/inventory/devices/{id}/submit-audit/
-        Body: {"comment": "...", "condition": "good", "status": "working"}
         """
         device = self.get_object()
         user = request.user
@@ -564,7 +588,7 @@ class InventoryDashboardViewSet(viewsets.ViewSet):
     def summary(self, request):
         """
         Get dashboard summary with all device types and their statistics
-        GET /api/inventory/dashboard/summary/
+        GET /api/inventory/summary/
         """
         device_types = DeviceType.objects.filter(is_active=True).order_by('name')
         
@@ -626,6 +650,10 @@ class InventoryDashboardViewSet(viewsets.ViewSet):
             "data": serializer.data
         })
 
+    @swagger_auto_schema(
+        operation_description="Get summary of monthly audits for all assigned devices (HR/Admin view).",
+        responses={200: "Success"}
+    )
     @action(detail=False, methods=['get'], url_path='audit-summary')
     def audit_summary(self, request):
         """
@@ -677,6 +705,37 @@ class InventoryDashboardViewSet(viewsets.ViewSet):
             }
         })
 
+    @swagger_auto_schema(
+        operation_description="Get audit status of all devices assigned to a specific employee.",
+        manual_parameters=[
+            openapi.Parameter(
+                'employee_id', openapi.IN_QUERY, 
+                description="ID of the employee (optional if viewing self)", 
+                type=openapi.TYPE_INTEGER
+            )
+        ],
+        responses={
+            200: openapi.Response(
+                description="Success",
+                examples={
+                    "application/json": {
+                        "error": 0,
+                        "data": {
+                            "allItemsAudited": True,
+                            "devices": [
+                                {
+                                    "id": 1,
+                                    "serial_number": "SN123",
+                                    "isAudited": True,
+                                    "device_type_name": "Laptop"
+                                }
+                            ]
+                        }
+                    }
+                }
+            )
+        }
+    )
     @action(detail=False, methods=['get'], url_path='user-audit-status')
     def user_audit_status(self, request):
         """
