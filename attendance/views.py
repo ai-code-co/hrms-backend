@@ -197,13 +197,13 @@ class AttendanceViewSet(viewsets.ModelViewSet):
                         "message": str(e)
                     }, status=status.HTTP_400_BAD_REQUEST)
             else:
-                # If no check_in time provided, use current time
+               # If no check_in time provided, use current time
                 home_in_time = current_time
             
             if check_out_str:
                 try:
                     home_out_time = serializer.parse_time_string(check_out_str, check_date)
-                    # Validate that check_out is after check_in
+                   # Validate that check_out is after check_in
                     if home_in_time and home_out_time <= home_in_time:
                         return Response({
                             "error": 1,
@@ -243,7 +243,7 @@ class AttendanceViewSet(viewsets.ModelViewSet):
             # ALL work-from-home entries from employees need approval, admin entries are auto-approved
             # Regular office check-ins are auto-approved
             if is_work_from_home:
-                # Work from home: PENDING for employees, APPROVED for admins
+               # Work from home: PENDING for employees, APPROVED for admins
                 if user.is_staff or user.is_superuser:
                     timesheet_status = 'APPROVED'
                     timesheet_approved_by = user
@@ -253,7 +253,7 @@ class AttendanceViewSet(viewsets.ModelViewSet):
                     timesheet_approved_by = None
                     timesheet_approved_at = None
             else:
-                # Regular office check-in: Auto-approved
+               # Regular office check-in: Auto-approved
                 timesheet_status = 'APPROVED'
                 timesheet_approved_by = user
                 timesheet_approved_at = timezone.now()
@@ -275,9 +275,9 @@ class AttendanceViewSet(viewsets.ModelViewSet):
                     existing.day_text = notes
                 existing.updated_by = user
                 
-                # Update timesheet status (only if fields exist in model)
-                # For work-from-home entries, always update status
-                # For regular check-ins, only update if status is not already set or is PENDING
+               # Update timesheet status (only if fields exist in model)
+               # For work-from-home entries, always update status
+               # For regular check-ins, only update if status is not already set or is PENDING
                 if is_work_from_home:
                     if hasattr(existing, 'timesheet_status'):
                         existing.timesheet_status = timesheet_status
@@ -288,7 +288,7 @@ class AttendanceViewSet(viewsets.ModelViewSet):
                     if timesheet_approved_at and hasattr(existing, 'timesheet_approved_at'):
                         existing.timesheet_approved_at = timesheet_approved_at
                 elif hasattr(existing, 'timesheet_status') and (not existing.timesheet_status or existing.timesheet_status == 'PENDING'):
-                    # For regular check-ins, auto-approve if not already set or if pending
+                   # For regular check-ins, auto-approve if not already set or if pending
                     existing.timesheet_status = timesheet_status
                     if timesheet_approved_by and hasattr(existing, 'timesheet_approved_by'):
                         existing.timesheet_approved_by = timesheet_approved_by
@@ -299,7 +299,7 @@ class AttendanceViewSet(viewsets.ModelViewSet):
                 existing.save()
                 attendance = existing
             else:
-                # Create new attendance record
+               # Create new attendance record
                 attendance = Attendance.objects.create(
                     employee=employee,
                     date=check_date,
@@ -313,7 +313,7 @@ class AttendanceViewSet(viewsets.ModelViewSet):
                     created_by=user,
                     updated_by=user
                 )
-                # Set timesheet fields only if they exist in the model
+               # Set timesheet fields only if they exist in the model
                 if hasattr(attendance, 'timesheet_status'):
                     attendance.timesheet_status = timesheet_status
                 if is_work_from_home and hasattr(attendance, 'timesheet_submitted_at'):
@@ -527,23 +527,23 @@ class AttendanceViewSet(viewsets.ModelViewSet):
         
         # Get employee
         if userid:
-            # Admin can view any employee's attendance
-            if user.is_staff:
-                try:
-                    employee = Employee.objects.get(id=int(userid))
-                except (Employee.DoesNotExist, ValueError):
-                    return Response({
-                        "error": 1,
-                        "message": "Employee not found"
-                    }, status=status.HTTP_404_NOT_FOUND)
-            else:
-                # Regular users can only view their own
-                if not hasattr(user, 'employee_profile') or str(user.employee_profile.id) != str(userid):
-                    return Response({
-                        "error": 1,
-                        "message": "You can only view your own attendance"
-                    }, status=status.HTTP_403_FORBIDDEN)
-                employee = user.employee_profile
+            # 1. Fetch the target employee
+            try:
+                employee = Employee.objects.get(id=int(userid))
+            except (Employee.DoesNotExist, ValueError):
+                return Response({"error": 1, "message": "Employee not found"}, status=status.HTTP_404_NOT_FOUND)
+
+            # 2. Check Permission
+            is_authorized = False
+            if user.is_staff or (hasattr(user, 'employee_profile') and user.employee_profile.role and user.employee_profile.role.can_view_all_employees):
+                is_authorized = True
+            elif hasattr(user, 'employee_profile'):
+                me = user.employee_profile
+                if str(me.id) == str(userid) or (me.role and me.role.can_view_subordinates and employee.reporting_manager_id == me.id):
+                    is_authorized = True
+            
+            if not is_authorized:
+                return Response({"error": 1, "message": "You do not have permission to view this employee's attendance"}, status=status.HTTP_403_FORBIDDEN)
         else:
             # Default to logged-in user's employee profile
             if not hasattr(user, 'employee_profile'):
@@ -730,23 +730,23 @@ class AttendanceViewSet(viewsets.ModelViewSet):
         
         # Get employee
         if userid:
-            # Admin can view any employee's attendance
-            if user.is_staff:
-                try:
-                    employee = Employee.objects.get(id=int(userid))
-                except (Employee.DoesNotExist, ValueError):
-                    return Response({
-                        "error": 1,
-                        "message": "Employee not found"
-                    }, status=status.HTTP_404_NOT_FOUND)
-            else:
-                # Regular users can only view their own
-                if not hasattr(user, 'employee_profile') or str(user.employee_profile.id) != str(userid):
-                    return Response({
-                        "error": 1,
-                        "message": "You can only view your own attendance"
-                    }, status=status.HTTP_403_FORBIDDEN)
-                employee = user.employee_profile
+            # 1. Fetch the target employee
+            try:
+                employee = Employee.objects.get(id=int(userid))
+            except (Employee.DoesNotExist, ValueError):
+                return Response({"error": 1, "message": "Employee not found"}, status=status.HTTP_404_NOT_FOUND)
+
+            # 2. Check Permission
+            is_authorized = False
+            if user.is_staff or (hasattr(user, 'employee_profile') and user.employee_profile.role and user.employee_profile.role.can_view_all_employees):
+                is_authorized = True
+            elif hasattr(user, 'employee_profile'):
+                me = user.employee_profile
+                if str(me.id) == str(userid) or (me.role and me.role.can_view_subordinates and employee.reporting_manager_id == me.id):
+                    is_authorized = True
+            
+            if not is_authorized:
+                return Response({"error": 1, "message": "You do not have permission to view this employee's attendance"}, status=status.HTTP_403_FORBIDDEN)
         else:
             # Default to logged-in user's employee profile
             if not hasattr(user, 'employee_profile'):
@@ -881,10 +881,10 @@ class AttendanceViewSet(viewsets.ModelViewSet):
                         "error": 1,
                         "message": f"Timesheet already submitted for this date. Status: {status_display}"
                     }, status=status.HTTP_400_BAD_REQUEST)
-                # If REJECTED, allow update/resubmission
+               # If REJECTED, allow update/resubmission
                 attendance = existing
             else:
-                # Create new attendance record
+               # Create new attendance record
                 attendance = Attendance.objects.create(
                     employee=employee,
                     date=date,
@@ -903,7 +903,7 @@ class AttendanceViewSet(viewsets.ModelViewSet):
             home_out_time = None
             
             if is_working_from_home:
-                # If user provided times, parse them
+               # If user provided times, parse them
                 if home_in_time_str:
                     try:
                         home_in_time = serializer.parse_time_string(home_in_time_str, date)
@@ -922,19 +922,19 @@ class AttendanceViewSet(viewsets.ModelViewSet):
                             "message": str(e)
                         }, status=status.HTTP_400_BAD_REQUEST)
                 
-                # If times not provided, auto-calculate based on office hours
+               # If times not provided, auto-calculate based on office hours
                 if not home_in_time or not home_out_time:
-                    # Get office start time (default 9 AM)
+                   # Get office start time (default 9 AM)
                     office_hours = attendance.office_working_hours or '09:00'
                     hour, minute = map(int, office_hours.split(':'))
                     
-                    # Set start time
+                   # Set start time
                     if not home_in_time:
                         home_in_time = timezone.make_aware(
                             datetime.combine(date, datetime.min.time().replace(hour=hour, minute=minute))
                         )
                     
-                    # Calculate end time based on total_time
+                   # Calculate end time based on total_time
                     if not home_out_time:
                         home_out_time = home_in_time + timedelta(seconds=total_time_seconds)
             
