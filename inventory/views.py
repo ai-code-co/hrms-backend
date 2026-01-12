@@ -720,24 +720,22 @@ class InventoryDashboardViewSet(viewsets.ViewSet):
         
         audited_device_ids = set(audit_comments)
         
-        device_results = []
-        all_audited = True
+        # Use DeviceListSerializer for full device details
+        serializer = DeviceListSerializer(devices, many=True)
+        device_results = serializer.data
         
-        for device in devices:
-            is_audited = device.id in audited_device_ids
+        all_audited = devices.exists() # Start with True if devices exist, False if none
+        
+        for device_item in device_results:
+            is_audited = device_item['id'] in audited_device_ids
+            device_item['isAudited'] = is_audited
             if not is_audited:
                 all_audited = False
-            
-            device_results.append({
-                "deviceId": device.serial_number or f"DEV_{device.id:03d}",
-                "isAudited": is_audited,
-                "deviceName": f"{device.brand} {device.model_name}" if device.brand else device.device_type.name
-            })
             
         return Response({
             "error": 0,
             "data": {
-                "allItemsAudited": all_audited and devices.exists(),
+                "allItemsAudited": all_audited,
                 "devices": device_results
             }
         })

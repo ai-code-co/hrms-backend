@@ -389,29 +389,7 @@ class LeaveViewSet(viewsets.ModelViewSet):
             "data": balance_data
         })
 
-    def perform_create(self, serializer):
-        """Override to update balance when leave is created"""
-        # OLD CODE: leave = serializer.save(employee=self.request.user)
-        # NEW CODE (2025-12-22): Save with Employee
-        user = self.request.user
-        if not hasattr(user, 'employee_profile'):
-            raise serializers.ValidationError("User must have an employee profile")
-        
-        leave = serializer.save(employee=user.employee_profile)
-        
-        # Update pending balance
-        current_year = timezone.now().year
-        try:
-            balance = LeaveBalance.objects.get(
-                employee=user.employee_profile,  # Changed from self.request.user
-                leave_type=leave.leave_type,
-                year=current_year
-            )
-            balance.pending += leave.no_of_days
-            balance.save()
-        except LeaveBalance.DoesNotExist:
-            pass
-    
-    def perform_update(self, serializer):
-        """Save leave updates - balance updates handled by signals"""
-        serializer.save()
+        return Response({
+            "error": 0,
+            "data": balance_data
+        })
