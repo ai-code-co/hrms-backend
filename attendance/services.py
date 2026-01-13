@@ -80,38 +80,38 @@ class AttendanceCalculationService:
             
         date = attendance.date
         
-        # Check if date is before joining
+        # 1. Check if date is before joining (Highest Priority)
         if attendance.employee.joining_date and date < attendance.employee.joining_date:
             attendance.day_type = 'BEFORE_JOINING'
             return
 
-        # Check for future dates
-        if date > today:
-            attendance.day_type = 'FUTURE_DAY'
-            return
-
-        # Check for weekends
-        if date.weekday() >= 5: # Saturday=5, Sunday=6
-            attendance.day_type = 'WEEKEND_OFF'
-            return
-
-        # Check for holidays
-        from holidays.models import Holiday
-        if Holiday.objects.filter(date=date, is_active=True).exists():
-            attendance.day_type = 'HOLIDAY'
-            return
-        
-        # Check for leaves
+        # 2. Check for leaves
         from leaves.models import Leave
         leave = Leave.objects.filter(
             employee=attendance.employee,
             from_date__lte=date,
             to_date__gte=date,
-            status='APPROVED'
+            status__in=['Approved', 'APPROVED']
         ).first()
         
         if leave:
             attendance.day_type = 'LEAVE_DAY'
+            return
+
+        # 3. Check for holidays
+        from holidays.models import Holiday
+        if Holiday.objects.filter(date=date, is_active=True).exists():
+            attendance.day_type = 'HOLIDAY'
+            return
+
+        # 4. Check for future dates
+        if date > today:
+            attendance.day_type = 'FUTURE_DAY'
+            return
+
+        # 5. Check for weekends
+        if date.weekday() >= 5: # Saturday=5, Sunday=6
+            attendance.day_type = 'WEEKEND_OFF'
             return
 
         # If has work time recorded
