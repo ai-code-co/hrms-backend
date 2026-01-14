@@ -46,7 +46,31 @@ class UserSalaryInfoView(APIView):
         )}
     )
     def get(self, request):
-        employee = get_object_or_404(Employee, user=request.user)
+        user = request.user
+        target_id = request.query_params.get('userid') or request.query_params.get('employee_id')
+        
+        if target_id:
+            # Check permission: Admin, HR, or Manager of the target employee
+            can_access = False
+            if user.is_staff or user.is_superuser:
+                can_access = True
+            elif hasattr(user, 'employee_profile'):
+                employee = user.employee_profile
+                if str(employee.id) == str(target_id):
+                    can_access = True
+                elif employee.can_view_all_employees():
+                    can_access = True
+                elif employee.can_view_subordinates():
+                    target_employee = Employee.objects.filter(id=target_id, reporting_manager_id=employee.id).first()
+                    if target_employee:
+                        can_access = True
+            
+            if not can_access:
+                return Response({"error": 1, "message": "Permission denied"}, status=403)
+                
+            employee = get_object_or_404(Employee, id=target_id)
+        else:
+            employee = get_object_or_404(Employee, user=request.user)
         
         # 1. Get all payslips (for the sidebar lookup) - Lightweight summaries
         all_payslips = Payslip.objects.filter(employee=employee).order_by('-year', '-month')
