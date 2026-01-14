@@ -158,6 +158,33 @@ class EmployeeDetailSerializer(serializers.ModelSerializer):
         return f"{cloudinary_base}/{obj.photo}"
 
 
+
+class EmployeeLookupSerializer(serializers.ModelSerializer):
+    """Lightweight serializer for employee selection lists"""
+    full_name = serializers.CharField(source='get_full_name', read_only=True)
+    designation_name = serializers.CharField(source='designation.name', read_only=True)
+    photo_url = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Employee
+        fields = [
+            'id', 'employee_id', 'full_name', 
+            'designation_name', 'photo', 'photo_url'
+        ]
+
+    def get_photo_url(self, obj):
+        """Construct full Cloudinary URL from stored photo path/public_id"""
+        if not obj.photo:
+            return None
+        
+        if obj.photo.startswith('http'):
+            return obj.photo
+            
+        import os
+        cloudinary_base = os.getenv('CLOUDINARY_BASE_URL', 'https://res.cloudinary.com/dhlyvqdoi/image/upload')
+        return f"{cloudinary_base}/{obj.photo}"
+
+
 class EmployeeCreateUpdateSerializer(serializers.ModelSerializer):
     """Serializer for creating/updating employees"""
     

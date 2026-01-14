@@ -206,6 +206,21 @@ class LeaveSerializer(serializers.ModelSerializer):
                 'leave_type': f'No leave quota configured for {leave_type}. Please contact HR.'
             })
         
+        # NEW LOGIC: Check for overlapping leaves
+        # We ignore Cancelled or Rejected leaves when checking for overlaps
+        overlapping_leaves = Leave.objects.filter(
+            employee=employee,
+            status__in=['Pending', 'Approved'],
+            from_date__lte=to_date,
+            to_date__gte=from_date
+        )
+        
+        if overlapping_leaves.exists():
+            conflict = overlapping_leaves.first()
+            raise serializers.ValidationError({
+                'non_field_errors': f'Overlapping leave found: You have already applied for {conflict.leave_type} from {conflict.from_date} to {conflict.to_date} (Status: {conflict.status}).'
+            })
+        
         return data
 
     def create(self, validated_data):

@@ -9,7 +9,7 @@ from .views import (
 router = DefaultRouter()
 router.register(r'device-types', DeviceTypeViewSet, basename='device-type')
 router.register(r'devices', DeviceViewSet, basename='device')
-router.register(r'dashboard', InventoryDashboardViewSet, basename='inventory-dashboard')
+router.register(r'', InventoryDashboardViewSet, basename='inventory-dashboard')
 
 urlpatterns = [
     path('', include(router.urls)),
