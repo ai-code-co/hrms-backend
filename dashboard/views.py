@@ -28,7 +28,9 @@ class DashboardSummaryView(APIView):
                     can_access = True
                 elif hasattr(user, 'employee_profile'):
                     employee_profile = user.employee_profile
-                    if employee_profile.can_view_all_employees():
+                    if str(employee_profile.id) == str(target_id):
+                        can_access = True
+                    elif employee_profile.can_view_all_employees():
                         can_access = True
                     elif employee_profile.can_view_subordinates():
                         target_employee = Employee.objects.filter(id=target_id, reporting_manager_id=employee_profile.id).first()

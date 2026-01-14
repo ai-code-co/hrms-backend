@@ -56,7 +56,9 @@ class UserSalaryInfoView(APIView):
                 can_access = True
             elif hasattr(user, 'employee_profile'):
                 employee = user.employee_profile
-                if employee.can_view_all_employees():
+                if str(employee.id) == str(target_id):
+                    can_access = True
+                elif employee.can_view_all_employees():
                     can_access = True
                 elif employee.can_view_subordinates():
                     target_employee = Employee.objects.filter(id=target_id, reporting_manager_id=employee.id).first()

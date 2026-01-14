@@ -59,7 +59,9 @@ class UserProfileView(APIView):
         if target_userid:
             # Check if current user is Admin OR a Manager of the target user
             can_access = False
-            if request.user.is_staff or request.user.is_superuser:
+            if str(request.user.id) == str(target_userid):
+                can_access = True
+            elif request.user.is_staff or request.user.is_superuser:
                 can_access = True
             elif hasattr(request.user, 'employee_profile'):
                 employee = request.user.employee_profile
