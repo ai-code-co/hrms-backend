@@ -18,13 +18,37 @@ class DashboardSummaryView(APIView):
     def get(self, request):
         try:
             user = request.user
-            if not hasattr(user, 'employee_profile'):
-                return Response({
-                    "error": 1,
-                    "message": "Employee profile not found"
-                }, status=status.HTTP_404_NOT_FOUND)
+            target_id = request.query_params.get('userid') or request.query_params.get('employee_id')
             
-            employee = user.employee_profile
+            if target_id:
+                # Check permission: Admin, HR, or Manager of the target employee
+                can_access = False
+                if user.is_staff or user.is_superuser:
+                    can_access = True
+                elif hasattr(user, 'employee_profile'):
+                    employee_profile = user.employee_profile
+                    if employee_profile.can_view_all_employees():
+                        can_access = True
+                    elif employee_profile.can_view_subordinates():
+                        target_employee = Employee.objects.filter(id=target_id, reporting_manager_id=employee_profile.id).first()
+                        if target_employee:
+                            can_access = True
+                
+                if not can_access:
+                    return Response({
+                        "error": 1,
+                        "message": "Permission denied"
+                    }, status=status.HTTP_403_FORBIDDEN)
+                    
+                employee = get_object_or_404(Employee, id=target_id)
+            else:
+                if not hasattr(user, 'employee_profile'):
+                    return Response({
+                        "error": 1,
+                        "message": "Employee profile not found"
+                    }, status=status.HTTP_404_NOT_FOUND)
+                employee = user.employee_profile
+
             today = timezone.now().date()
             current_month = today.month
             current_year = today.year

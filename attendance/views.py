@@ -37,6 +37,9 @@ from .constants import DATE_FORMAT, TIME_12HR_FORMAT
 from .serializers import format_datetime_to_iso, format_seconds_to_hms
 
 
+from employees.permissions import IsAdminOrManagerOrOwner
+from employees.filters import HierarchyFilterBackend
+
 class AttendanceViewSet(viewsets.ModelViewSet):
     """
     ViewSet for Attendance management
@@ -48,8 +51,8 @@ class AttendanceViewSet(viewsets.ModelViewSet):
     destroy: Delete attendance (Admin only)
     """
     queryset = Attendance.objects.all()
-    permission_classes = [IsAuthenticated]
-    filter_backends = [SearchFilter, OrderingFilter]
+    permission_classes = [IsAuthenticated, IsAdminOrManagerOrOwner]
+    filter_backends = [HierarchyFilterBackend, SearchFilter, OrderingFilter]
     if HAS_DJANGO_FILTER:
         filter_backends.insert(0, DjangoFilterBackend)
     filterset_fields = [
@@ -71,19 +74,8 @@ class AttendanceViewSet(viewsets.ModelViewSet):
         return AttendanceDetailSerializer
     
     def get_queryset(self):
-        """Filter queryset based on user permissions"""
-        queryset = super().get_queryset()
-        user = self.request.user
-        
-        # Admin/Staff can see all attendance
-        if user.is_staff:
-            return queryset
-        
-        # Regular users can only see their own attendance
-        if hasattr(user, 'employee_profile'):
-            return queryset.filter(employee=user.employee_profile)
-        
-        return queryset.none()
+        """Queryset is filtered by HierarchyFilterBackend"""
+        return super().get_queryset()
     
     def get_permissions(self):
         """Set permissions based on action"""

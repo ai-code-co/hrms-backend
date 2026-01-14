@@ -122,19 +122,22 @@ class DeviceTypeViewSet(viewsets.ModelViewSet):
         })
 
 
+from employees.permissions import IsAdminOrManagerOrOwner
+from employees.filters import HierarchyFilterBackend
+
 class DeviceViewSet(viewsets.ModelViewSet):
     """
     ViewSet for Device management
     
     Permissions:
-    - List/Retrieve all devices: Admin, Manager, HR only
+    - List/Retrieve all devices: Admin, Manager (subordinates), HR only
     - Create/Update/Delete: Admin, Manager, HR only
     - Assign/Unassign: Admin, Manager, HR only
     - My Devices/My History: All authenticated employees (own devices only)
     """
     queryset = Device.objects.all()
-    permission_classes = [IsAuthenticated]
-    filter_backends = [SearchFilter, OrderingFilter]
+    permission_classes = [IsAuthenticated, IsAdminOrManagerOrOwner]
+    filter_backends = [HierarchyFilterBackend, SearchFilter, OrderingFilter]
     if HAS_DJANGO_FILTER:
         filter_backends.insert(0, DjangoFilterBackend)
     filterset_fields = [
@@ -160,28 +163,10 @@ class DeviceViewSet(viewsets.ModelViewSet):
         return DeviceDetailSerializer
 
     def get_queryset(self):
-        """Filter queryset based on user permissions"""
-        queryset = super().get_queryset().select_related(
+        """Queryset is filtered by HierarchyFilterBackend"""
+        return super().get_queryset().select_related(
             'device_type', 'employee', 'created_by', 'updated_by'
         )
-        
-        # Show only active devices for non-admin users
-        if not self.request.user.is_staff:
-            queryset = queryset.filter(is_active=True)
-        
-        # Additional filters from query params
-        status_filter = self.request.query_params.get('status')
-        if status_filter:
-            queryset = queryset.filter(status=status_filter)
-        
-        assigned = self.request.query_params.get('assigned')
-        if assigned:
-            if assigned.lower() == 'true':
-                queryset = queryset.filter(employee__isnull=False)
-            elif assigned.lower() == 'false':
-                queryset = queryset.filter(employee__isnull=True)
-        
-        return queryset
 
     def get_permissions(self):
         """

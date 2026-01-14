@@ -19,28 +19,18 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+from employees.permissions import IsAdminOrManagerOrOwner
+from employees.filters import HierarchyFilterBackend
+
 class LeaveViewSet(viewsets.ModelViewSet):
     queryset = Leave.objects.all()
     serializer_class = LeaveSerializer
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [IsAuthenticated, IsAdminOrManagerOrOwner]
+    filter_backends = [HierarchyFilterBackend]
 
     def get_queryset(self):
-        """
-        Admins see all leaves.
-        Regular users see only their own leaves.
-        """
-        user = self.request.user
-        
-        # Admins can see all leaves
-        if user.is_staff:
-            return Leave.objects.all()
-        
-        # Check if user has employee profile
-        if not hasattr(user, 'employee_profile'):
-            return Leave.objects.none()  # Return empty queryset
-        
-        # Regular users see only their own leaves
-        return Leave.objects.filter(employee=user.employee_profile)
+        """Queryset is filtered by HierarchyFilterBackend"""
+        return super().get_queryset()
 
     @swagger_auto_schema(
         operation_description="Gateway endpoint to handle different actions (e.g., apply_leave, get_days_between_leaves).",

@@ -30,6 +30,7 @@ from .permissions import EmployeeObjectPermission
 from rest_framework.exceptions import PermissionDenied
 
 
+from employees.filters import HierarchyFilterBackend
 
 class EmployeeViewSet(viewsets.ModelViewSet):
     """
@@ -38,12 +39,12 @@ class EmployeeViewSet(viewsets.ModelViewSet):
     list: Get all employees (with filters and search)
     retrieve: Get single employee details with all related data
     create: Create new employee (Admin/HR only)
-    update: Update employee (Admin/HR only)
-    destroy: Soft delete employee (Admin only)
+    update: Update employee details
+    destroy: Soft delete (Admin/HR only)
     """
     queryset = Employee.objects.all()
     permission_classes = [IsAuthenticated, EmployeeObjectPermission]
-    filter_backends = [SearchFilter, OrderingFilter]
+    filter_backends = [HierarchyFilterBackend, SearchFilter, OrderingFilter]
     if HAS_DJANGO_FILTER:
         filter_backends.insert(0, DjangoFilterBackend)
     filterset_fields = [
@@ -65,11 +66,7 @@ class EmployeeViewSet(viewsets.ModelViewSet):
     
     # def get_serializer_class(self):
     #     """Use different serializers based on action"""
-    #     if self.action == 'list':
-    #         return EmployeeListSerializer
-    #     elif self.action in ['create', 'update', 'partial_update']:
-    #         return EmployeeCreateUpdateSerializer
-    #     return EmployeeDetailSerializer
+    #     # ... (omitted for brevity)
 
     def get_serializer_class(self):
         if self.action == "list":
@@ -124,37 +121,11 @@ class EmployeeViewSet(viewsets.ModelViewSet):
         return EmployeeManagerDetailSerializer
 
 
-
-
-
     def get_queryset(self):
-        user = self.request.user
-
-        # Superuser always has access
-        if user.is_superuser:
-            return Employee.objects.all()
-
-        # Check role-based access
-        if hasattr(user, "employee_profile"):
-            employee = user.employee_profile
-            
-            # Admin/HR → can list all employees
-            if employee.role and employee.role.can_view_all_employees:
-                return Employee.objects.all()
-            
-            # Manager → can list subordinates
-            if employee.role and employee.role.can_view_subordinates:
-                return Employee.objects.filter(
-                    reporting_manager=employee,
-                    is_active=True
-                )
-
-        # Backward compatibility: is_staff can list all
-        if user.is_staff:
-            return Employee.objects.all()
-
-        # Employee & others → NO list access
-        return Employee.objects.none()
+        """Queryset is filtered by HierarchyFilterBackend"""
+        return super().get_queryset().select_related(
+            'role', 'department', 'designation', 'reporting_manager'
+        ).prefetch_related('emergency_contacts', 'educations', 'work_histories')
     
 
 
