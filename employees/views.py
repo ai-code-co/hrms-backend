@@ -1,5 +1,6 @@
 from rest_framework import viewsets, status
 from rest_framework.decorators import action
+from django.shortcuts import get_object_or_404
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated, IsAdminUser
 from rest_framework.filters import SearchFilter, OrderingFilter
@@ -279,17 +280,45 @@ class EmployeeViewSet(viewsets.ModelViewSet):
     
     @action(detail=False, methods=['get', 'patch'])
     def me(self, request):
-        """Get or update current logged-in user's employee profile"""
-        if not hasattr(request.user, 'employee_profile'):
-            return Response(
-                {'detail': 'No employee profile found for this user.'},
-                status=status.HTTP_404_NOT_FOUND
-            )
+        """Get or update current logged-in user's employee profile or a specific employee if allowed"""
+        user = request.user
+        target_id = request.query_params.get('userid') or request.query_params.get('employee_id')
         
-        employee = request.user.employee_profile
+        # Determine which employee to show/edit
+        if target_id:
+            # Check permission: Admin, HR, or Manager of the target employee
+            can_access = False
+            if user.is_staff or user.is_superuser:
+                can_access = True
+            elif hasattr(user, 'employee_profile'):
+                requesting_emp = user.employee_profile
+                if requesting_emp.can_view_all_employees():
+                    can_access = True
+                elif str(requesting_emp.id) == str(target_id):
+                    can_access = True
+                elif requesting_emp.can_view_subordinates():
+                    target_employee = Employee.objects.filter(id=target_id, reporting_manager_id=requesting_emp.id).first()
+                    if target_employee:
+                        can_access = True
+            
+            if not can_access:
+                return Response({"error": 1, "message": "Permission denied"}, status=403)
+                
+            employee = get_object_or_404(Employee, id=target_id)
+        else:
+            if not hasattr(user, 'employee_profile'):
+                return Response(
+                    {'detail': 'No employee profile found for this user.'},
+                    status=status.HTTP_404_NOT_FOUND
+                )
+            employee = user.employee_profile
         
         if request.method == 'PATCH':
-            # Allow partial update of self profile
+            # Check if allowed to edit
+            if not self._can_edit_employee(request, employee):
+                return Response({"error": 1, "message": "Permission denied to edit this profile"}, status=403)
+
+            # Allow partial update
             serializer = EmployeeCreateUpdateSerializer(
                 employee, 
                 data=request.data, 
@@ -297,8 +326,15 @@ class EmployeeViewSet(viewsets.ModelViewSet):
             )
             if serializer.is_valid():
                 serializer.save(updated_by=request.user)
-                # Return the detailed view after update
+                
+                # Determine detail serializer based on role (similar to get_serializer_class logic)
                 detail_serializer = EmployeeSelfDetailSerializer(employee)
+                # If admin or manager, they might see more fields
+                if user.is_superuser or (hasattr(user, 'employee_profile') and user.employee_profile.can_view_all_employees()):
+                    detail_serializer = EmployeeAdminDetailSerializer(employee)
+                elif hasattr(user, 'employee_profile') and employee.reporting_manager_id == user.employee_profile.id:
+                    detail_serializer = EmployeeManagerDetailSerializer(employee)
+
                 return Response({
                     "success": True,
                     "message": "Profile updated successfully",
@@ -307,7 +343,14 @@ class EmployeeViewSet(viewsets.ModelViewSet):
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
         
         # GET request
-        serializer = EmployeeSelfDetailSerializer(employee)
+        # Pick the right serializer based on permission context
+        if user.is_superuser or (hasattr(user, 'employee_profile') and user.employee_profile.can_view_all_employees()):
+            serializer = EmployeeAdminDetailSerializer(employee)
+        elif hasattr(user, 'employee_profile') and employee.reporting_manager_id == user.employee_profile.id:
+            serializer = EmployeeManagerDetailSerializer(employee)
+        else:
+            serializer = EmployeeSelfDetailSerializer(employee)
+            
         return Response(serializer.data)
     
     # @action(detail=True, methods=['get'])
