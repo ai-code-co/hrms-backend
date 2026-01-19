@@ -27,7 +27,8 @@ from .serializers import (
     MonthlyAttendanceSerializer,
     WeeklyTimesheetSubmitSerializer,
     WeeklyTimesheetSerializer,
-    UpdateSessionSerializer
+    UpdateSessionSerializer,
+    BulkUpdateWorkingHoursSerializer
 )
 from holidays.models import Holiday
 from employees.models import Employee
@@ -1227,6 +1228,117 @@ class AttendanceViewSet(viewsets.ModelViewSet):
                 "approved_by": user.email,
                 "approved_at": approved_at,
                 "admin_notes": admin_notes if action == 'reject' else None
+            }
+        }, status=status.HTTP_200_OK)
+    
+    @action(detail=False, methods=['patch'], url_path='bulk-update-working-hours')
+    def bulk_update_working_hours(self, request):
+        """
+        Bulk update office_working_hours for a date range (Admin/Manager only)
+        PATCH /api/attendance/bulk-update-working-hours/
+        Body: {
+            "employee": 12,
+            "start_date": "2026-02-01",
+            "end_date": "2026-02-07",
+            "office_working_hours": "09:00"
+        }
+        """
+        user = request.user
+        
+        # Permission check: Admin or Manager
+        if not (user.is_superuser or user.is_staff):
+            if hasattr(user, 'employee_profile'):
+                emp = user.employee_profile
+                if not (emp.role and (emp.role.can_edit_all_employees or emp.role.can_view_subordinates)):
+                    return Response({
+                        "error": 1,
+                        "message": "Permission denied. Only admins and managers can update working hours."
+                    }, status=status.HTTP_403_FORBIDDEN)
+            else:
+                return Response({
+                    "error": 1,
+                    "message": "Permission denied"
+                }, status=status.HTTP_403_FORBIDDEN)
+        
+        # Validate input
+        serializer = BulkUpdateWorkingHoursSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response({
+                "error": 1,
+                "message": "Validation failed",
+                "errors": serializer.errors
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        employee_id = serializer.validated_data['employee']
+        start_date = serializer.validated_data['start_date']
+        end_date = serializer.validated_data['end_date']
+        office_hours = serializer.validated_data['office_working_hours']
+        
+        # Get employee
+        try:
+            employee = Employee.objects.get(id=employee_id)
+        except Employee.DoesNotExist:
+            return Response({
+                "error": 1,
+                "message": f"Employee with ID {employee_id} not found"
+            }, status=status.HTTP_404_NOT_FOUND)
+        
+        # Additional permission check for managers: can only update subordinates
+        if not (user.is_superuser or user.is_staff):
+            if hasattr(user, 'employee_profile'):
+                emp = user.employee_profile
+                if emp.role and emp.role.can_view_subordinates:
+                    # Manager can only update their subordinates
+                    if employee.reporting_manager_id != emp.id:
+                        return Response({
+                            "error": 1,
+                            "message": "You can only update working hours for your subordinates"
+                        }, status=status.HTTP_403_FORBIDDEN)
+        
+        # Bulk update attendance records
+        from datetime import timedelta
+        current_date = start_date
+        updated_count = 0
+        created_count = 0
+        
+        with transaction.atomic():
+            while current_date <= end_date:
+                attendance, created = Attendance.objects.get_or_create(
+                    employee=employee,
+                    date=current_date,
+                    defaults={
+                        'office_working_hours': office_hours,
+                        'orignal_total_time': getattr(settings, 'ATTENDANCE_DEFAULT_TOTAL_TIME_SECONDS', 32400),
+                        'created_by': user,
+                        'updated_by': user
+                    }
+                )
+                
+                if not created:
+                    # Update existing record
+                    attendance.office_working_hours = office_hours
+                    attendance.updated_by = user
+                    attendance.save()
+                    updated_count += 1
+                else:
+                    created_count += 1
+                
+                current_date += timedelta(days=1)
+        
+        total_days = (end_date - start_date).days + 1
+        
+        return Response({
+            "error": 0,
+            "data": {
+                "message": f"Successfully updated office working hours for {employee.get_full_name()}",
+                "employee_id": employee_id,
+                "employee_name": employee.get_full_name(),
+                "start_date": start_date.strftime(DATE_FORMAT),
+                "end_date": end_date.strftime(DATE_FORMAT),
+                "office_working_hours": office_hours,
+                "total_days": total_days,
+                "updated_records": updated_count,
+                "created_records": created_count
             }
         }, status=status.HTTP_200_OK)
     
