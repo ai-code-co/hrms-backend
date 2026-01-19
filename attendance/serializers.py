@@ -1162,3 +1162,45 @@ class UpdateSessionSerializer(serializers.Serializer):
                 raise serializers.ValidationError(f"Error validating times: {str(e)}")
                 
         return data
+
+
+class BulkUpdateWorkingHoursSerializer(serializers.Serializer):
+    """Serializer for bulk updating office_working_hours for a date range"""
+    employee = serializers.IntegerField(required=True, help_text="Employee ID")
+    start_date = serializers.DateField(required=True, help_text="Start date (YYYY-MM-DD)")
+    end_date = serializers.DateField(required=True, help_text="End date (YYYY-MM-DD)")
+    office_working_hours = serializers.CharField(
+        max_length=10, 
+        required=True, 
+        help_text="Office working hours in HH:MM format (e.g., '09:00')"
+    )
+    
+    def validate(self, data):
+        """Validate date range and office_working_hours format"""
+        start_date = data.get('start_date')
+        end_date = data.get('end_date')
+        office_hours = data.get('office_working_hours')
+        
+        # Validate date range
+        if end_date < start_date:
+            raise serializers.ValidationError({
+                'end_date': 'End date must be on or after start date.'
+            })
+        
+        # Validate office_working_hours format (HH:MM)
+        import re
+        if not re.match(r'^\d{2}:\d{2}$', office_hours):
+            raise serializers.ValidationError({
+                'office_working_hours': 'Must be in HH:MM format (e.g., "09:00")'
+            })
+        
+        # Validate employee exists
+        from employees.models import Employee
+        try:
+            Employee.objects.get(id=data['employee'])
+        except Employee.DoesNotExist:
+            raise serializers.ValidationError({
+                'employee': f'Employee with ID {data["employee"]} does not exist.'
+            })
+        
+        return data
