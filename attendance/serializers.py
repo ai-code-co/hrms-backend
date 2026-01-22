@@ -96,30 +96,34 @@ def format_datetime_to_iso(dt):
 def get_leave_for_date(date, leaves_list):
     """
     Find leave that applies to a specific date.
+    Always returns the most recent application (highest ID).
     Returns: (leave_object, is_rh, is_partial, partial_type)
     """
+    applicable_leaves = []
     for leave in leaves_list:
         if leave.from_date <= date <= leave.to_date:
-            # Check if date is a Restricted Holiday
-            if leave.rh_dates:
-                # Convert all to string for comparison
-                rh_date_strings = []
-                for d in leave.rh_dates:
-                    if isinstance(d, str):
-                        rh_date_strings.append(d)
-                    else:
-                        # Assume date object
-                        rh_date_strings.append(str(d))
-                
-                if str(date) in rh_date_strings:
-                    return (leave, True, False, None)
+            applicable_leaves.append(leave)
             
-            # Check for partial leave
-            if leave.day_status:
-                return (leave, False, True, leave.day_status)
+    if not applicable_leaves:
+        return (None, False, False, None)
+
+    # Sort by ID descending to get the most recent application first
+    applicable_leaves.sort(key=lambda l: l.id, reverse=True)
+    
+    leave = applicable_leaves[0]
+    
+    # Check if date is a Restricted Holiday
+    is_rh = False
+    if leave.leave_type == 'Restricted Holiday' and leave.rh_dates:
+        rh_date_strings = [str(d) for d in leave.rh_dates]
+        if str(date) in rh_date_strings:
+            is_rh = True
             
-            return (leave, False, False, None)
-    return (None, False, False, None)
+    # Check for partial leave
+    is_partial = bool(leave.day_status)
+    partial_type = leave.day_status
+    
+    return (leave, is_rh, is_partial, partial_type)
 
 
 class AttendanceListSerializer(serializers.ModelSerializer):
@@ -1157,4 +1161,46 @@ class UpdateSessionSerializer(serializers.Serializer):
             except Exception as e:
                 raise serializers.ValidationError(f"Error validating times: {str(e)}")
                 
+        return data
+
+
+class BulkUpdateWorkingHoursSerializer(serializers.Serializer):
+    """Serializer for bulk updating office_working_hours for a date range"""
+    employee = serializers.IntegerField(required=True, help_text="Employee ID")
+    start_date = serializers.DateField(required=True, help_text="Start date (YYYY-MM-DD)")
+    end_date = serializers.DateField(required=True, help_text="End date (YYYY-MM-DD)")
+    office_working_hours = serializers.CharField(
+        max_length=10, 
+        required=True, 
+        help_text="Office working hours in HH:MM format (e.g., '09:00')"
+    )
+    
+    def validate(self, data):
+        """Validate date range and office_working_hours format"""
+        start_date = data.get('start_date')
+        end_date = data.get('end_date')
+        office_hours = data.get('office_working_hours')
+        
+        # Validate date range
+        if end_date < start_date:
+            raise serializers.ValidationError({
+                'end_date': 'End date must be on or after start date.'
+            })
+        
+        # Validate office_working_hours format (HH:MM)
+        import re
+        if not re.match(r'^\d{2}:\d{2}$', office_hours):
+            raise serializers.ValidationError({
+                'office_working_hours': 'Must be in HH:MM format (e.g., "09:00")'
+            })
+        
+        # Validate employee exists
+        from employees.models import Employee
+        try:
+            Employee.objects.get(id=data['employee'])
+        except Employee.DoesNotExist:
+            raise serializers.ValidationError({
+                'employee': f'Employee with ID {data["employee"]} does not exist.'
+            })
+        
         return data

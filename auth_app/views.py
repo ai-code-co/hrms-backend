@@ -53,8 +53,33 @@ class UserProfileView(APIView):
         responses={200: UserProfileSerializer()}
     )
     def get(self, request):
+        user_to_show = request.user
+        target_userid = request.query_params.get('userid')
+        
+        if target_userid:
+            # Check if current user is Admin OR a Manager of the target user
+            can_access = False
+            if str(request.user.id) == str(target_userid):
+                can_access = True
+            elif request.user.is_staff or request.user.is_superuser:
+                can_access = True
+            elif hasattr(request.user, 'employee_profile'):
+                employee = request.user.employee_profile
+                if employee.can_view_subordinates():
+                    from employees.models import Employee
+                    target_employee = Employee.objects.filter(id=target_userid, reporting_manager_id=employee.id).first()
+                    if target_employee:
+                        can_access = True
+                        user_to_show = target_employee.user
+            
+            if not can_access:
+                return Response({"error": "Permission denied"}, status=403)
+            
+            from .models import User
+            user_to_show = User.objects.filter(id=target_userid).first() or user_to_show
+
         serializer = UserProfileSerializer(
-            request.user,
+            user_to_show,
             context={"request": request}
         )
         return Response(serializer.data)

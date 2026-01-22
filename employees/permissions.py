@@ -60,3 +60,49 @@ class EmployeeObjectPermission(BasePermission):
 
         # Default: no access
         return False
+
+
+class IsAdminOrManagerOrOwner(BasePermission):
+    """
+    Generic permission for hierarchy-based access:
+    - Admin/HR → full access
+    - Manager → access to subordinates (usually READ-ONLY)
+    - Owner → access to own data
+    """
+    def has_permission(self, request, view):
+        return request.user.is_authenticated
+
+    def has_object_permission(self, request, view, obj):
+        user = request.user
+        
+        # Staff/Superuser → all access
+        if user.is_staff or user.is_superuser:
+            return True
+            
+        if not hasattr(user, 'employee_profile'):
+            return False
+            
+        employee = user.employee_profile
+        
+        # Determine the target employee for this object
+        target_employee = None
+        if hasattr(obj, 'employee'):
+            target_employee = obj.employee
+        elif isinstance(obj, employee.__class__): # If obj is Employee instance
+            target_employee = obj
+            
+        if not target_employee:
+            return False
+            
+        # 1. Self access
+        if target_employee.id == employee.id:
+            return True
+            
+        # 2. Manager access to subordinates
+        if employee.can_view_subordinates() and target_employee.reporting_manager_id == employee.id:
+            # Managers have read-only access by default
+            if request.method in SAFE_METHODS:
+                return True
+            return False
+            
+        return False

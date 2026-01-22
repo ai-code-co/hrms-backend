@@ -144,6 +144,25 @@ class Device(models.Model):
         help_text="Additional notes about the device"
     )
     is_active = models.BooleanField(default=True)
+    # Document fields (store Cloudinary public ID or full URL)
+    photo = models.CharField(
+        max_length=500,
+        null=True,
+        blank=True,
+        help_text="Cloudinary URL or public ID for device photo"
+    )
+    warranty_doc = models.CharField(
+        max_length=500,
+        null=True,
+        blank=True,
+        help_text="Cloudinary URL or public ID for warranty document"
+    )
+    invoice_doc = models.CharField(
+        max_length=500,
+        null=True,
+        blank=True,
+        help_text="Cloudinary URL or public ID for purchase invoice"
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
     created_by = models.ForeignKey(

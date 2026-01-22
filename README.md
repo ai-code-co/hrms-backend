@@ -93,3 +93,29 @@ python manage.py runserver
 3. Create a **Company** record.
 4. Add a **Slack Configuration** for that company.
 5. Assign **Employees** to the company to enable notifications.
+
+---
+
+## 📖 API Documentation
+
+### 👤 User Self-Service APIs
+Employees can manage their own data via these core endpoints:
+- **Profile**: `/auth/me/`, `/api/employees/me/`
+- **Attendance**: `/api/attendance/today/`, `/api/attendance/my-attendance/`, `/api/attendance/monthly/`
+- **Leaves**: `/api/leaves/balance/`, `/api/leaves/submit-leave/`
+- **Payroll**: `/api/payroll/user-salary-info/`
+- **Assets**: `/api/inventory/devices/my-devices/`
+
+### 🗺️ Hierarchy-Based Access (RBAC)
+The system supports a **Manager-Subordinate** hierarchy. Admins and Managers can view data for other employees by passing a `userid` query parameter.
+
+| Role | Access Level | Query Parameter |
+| :--- | :--- | :--- |
+| **Admin/HR** | Full System Access | `?userid=<any_id>` |
+| **Manager** | Direct Reports Only | `?userid=<subordinate_id>` |
+| **Employee** | Self-Service Only | *None (Locked to own ID)* |
+
+**Example**: `GET /api/attendance/monthly/?userid=15`
+
+> For a full list of all **User Self-Service APIs**, see [User APIs](docs/user_apis.md).
+> For a detailed **Frontend Integration Guide** for hierarchy access, see [Frontend Updates](docs/frontend_api_updates.md).
