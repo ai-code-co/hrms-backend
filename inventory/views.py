@@ -190,7 +190,7 @@ class DeviceViewSet(viewsets.ModelViewSet):
             return [IsAuthenticated(), CanViewAllDevices()]
         
         # Other admin actions - Admin/Manager/HR only
-        if self.action in ['assignment_history', 'unassigned_devices', 'warranty_expiring']:
+        if self.action in ['assignment_history', 'unassigned_devices', 'warranty_expiring', 'comments']:
             return [IsAuthenticated(), IsAdminManagerOrHR()]
         
         # My devices & My history - All authenticated employees
@@ -515,6 +515,20 @@ class DeviceViewSet(viewsets.ModelViewSet):
             "data": serializer.data
         })
     
+    @action(detail=True, methods=['get'])
+    def comments(self, request, pk=None):
+        """
+        Get all comments/history for a device
+        GET /api/inventory/devices/{id}/comments/
+        """
+        device = self.get_object()
+        comments = device.comments.all().select_related('employee').order_by('-created_at')
+        serializer = DeviceCommentSerializer(comments, many=True)
+        return Response({
+            "error": 0,
+            "data": serializer.data
+        })
+
     @action(detail=False, methods=['get'], url_path='unassigned')
     def unassigned_devices(self, request):
         """
