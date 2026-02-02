@@ -119,7 +119,8 @@ class DeviceListSerializer(serializers.ModelSerializer):
             'condition', 'condition_display',
             'employee', 'employee_id', 'employee_name',
             'purchase_date', 'warranty_expiry', 'is_under_warranty',
-            'recent_comments', 'is_active', 'created_at'
+            'recent_comments', 'is_active', 'created_at',
+            'photo_url', 'warranty_doc_url', 'invoice_doc_url'
         ]
     
     def get_employee_name(self, obj):
@@ -181,7 +182,8 @@ class DeviceDetailSerializer(serializers.ModelSerializer):
             'created_at', 'updated_at',
             'created_by', 'created_by_name', 
             'updated_by', 'updated_by_name',
-            'assignment_history'
+            'assignment_history',
+            'photo_url', 'warranty_doc_url', 'invoice_doc_url'
         ]
         read_only_fields = [
             'created_at', 'updated_at', 'created_by', 'updated_by',
