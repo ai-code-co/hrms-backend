@@ -1,5 +1,6 @@
 from django.shortcuts import render
 from rest_framework import viewsets, status, permissions, serializers
+from rest_framework.permissions import IsAuthenticated
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -19,28 +20,18 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+from employees.permissions import IsAdminOrManagerOrOwner
+from employees.filters import HierarchyFilterBackend
+
 class LeaveViewSet(viewsets.ModelViewSet):
     queryset = Leave.objects.all()
     serializer_class = LeaveSerializer
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [IsAuthenticated, IsAdminOrManagerOrOwner]
+    filter_backends = [HierarchyFilterBackend]
 
     def get_queryset(self):
-        """
-        Admins see all leaves.
-        Regular users see only their own leaves.
-        """
-        user = self.request.user
-        
-        # Admins can see all leaves
-        if user.is_staff:
-            return Leave.objects.all()
-        
-        # Check if user has employee profile
-        if not hasattr(user, 'employee_profile'):
-            return Leave.objects.none()  # Return empty queryset
-        
-        # Regular users see only their own leaves
-        return Leave.objects.filter(employee=user.employee_profile)
+        """Queryset is filtered by HierarchyFilterBackend"""
+        return super().get_queryset()
 
     @swagger_auto_schema(
         operation_description="Gateway endpoint to handle different actions (e.g., apply_leave, get_days_between_leaves).",
@@ -72,12 +63,18 @@ class LeaveViewSet(viewsets.ModelViewSet):
         return super().create(request, *args, **kwargs)
 
     def perform_create(self, serializer):
-        # OLD CODE: serializer.save(employee=self.request.user)
-        # NEW CODE (2025-12-22): Save with Employee
-        user = self.request.user
-        if not hasattr(user, 'employee_profile'):
-            raise serializers.ValidationError("User must have an employee profile")
-        serializer.save(employee=user.employee_profile)
+        # Use the employee resolved by the serializer (handles admin-on-behalf logic)
+        target_employee = serializer.validated_data.get('target_employee_obj')
+        
+        if not target_employee:
+            # Fallback (should be covered by serializer validation)
+            user = self.request.user
+            if hasattr(user, 'employee_profile'):
+                target_employee = user.employee_profile
+            else:
+                 raise serializers.ValidationError("User must have an employee profile")
+
+        serializer.save(employee=target_employee)
 
     @swagger_auto_schema(
         operation_description="Calculate working days, weekends, and holidays between two dates.",
@@ -226,7 +223,13 @@ class LeaveViewSet(viewsets.ModelViewSet):
             try:
                 # The serializer's validate() already checks balances.
                 # The serializer's create() handles linking the restricted_holiday if 'rh_id' is passed.
-                leave = serializer.save(employee=user.employee_profile)
+                
+                # Use the employee resolved by the serializer
+                target_employee = serializer.validated_data.get('target_employee_obj')
+                if not target_employee:
+                     target_employee = user.employee_profile
+
+                leave = serializer.save(employee=target_employee)
 
                 # Balance updates (adding to pending) are handled by update_balance_on_leave_create signal.
                 
@@ -389,29 +392,23 @@ class LeaveViewSet(viewsets.ModelViewSet):
             "data": balance_data
         })
 
-    def perform_create(self, serializer):
-        """Override to update balance when leave is created"""
-        # OLD CODE: leave = serializer.save(employee=self.request.user)
-        # NEW CODE (2025-12-22): Save with Employee
-        user = self.request.user
-        if not hasattr(user, 'employee_profile'):
-            raise serializers.ValidationError("User must have an employee profile")
+        return Response({
+            "error": 0,
+            "data": balance_data
+        })
+
+    @action(detail=False, methods=['get'], url_path='pending-leaves')
+    def pending_leaves(self, request):
+        """
+        Get all pending leaves (SuperAdmin only).
+        """
+        if not (request.user.is_superuser or request.user.is_staff):
+             return Response({"error": 1, "message": "Permission denied"}, status=status.HTTP_403_FORBIDDEN)
         
-        leave = serializer.save(employee=user.employee_profile)
+        leaves = Leave.objects.filter(status='Pending').order_by('created_at')
+        serializer = self.get_serializer(leaves, many=True)
         
-        # Update pending balance
-        current_year = timezone.now().year
-        try:
-            balance = LeaveBalance.objects.get(
-                employee=user.employee_profile,  # Changed from self.request.user
-                leave_type=leave.leave_type,
-                year=current_year
-            )
-            balance.pending += leave.no_of_days
-            balance.save()
-        except LeaveBalance.DoesNotExist:
-            pass
-    
-    def perform_update(self, serializer):
-        """Save leave updates - balance updates handled by signals"""
-        serializer.save()
+        return Response({
+            "error": 0,
+            "data": serializer.data
+        })

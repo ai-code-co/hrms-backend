@@ -313,6 +313,10 @@ class Employee(models.Model):
             return self.role.can_view_subordinates
         return False
 
+    def get_subordinate_ids(self):
+        """Get IDs of all direct subordinates"""
+        return list(self.subordinates.values_list('id', flat=True))
+
     def save(self, *args, **kwargs):
         """Auto-generate employee_id if not provided and assign default role"""
         if not self.employee_id:

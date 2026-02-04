@@ -1,5 +1,6 @@
 from rest_framework import viewsets, status
 from rest_framework.decorators import action
+from django.shortcuts import get_object_or_404
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated, IsAdminUser
 from rest_framework.filters import SearchFilter, OrderingFilter
@@ -23,12 +24,14 @@ from .serializers import (
     EmployeeAdminDetailSerializer,
     EmployeeSelfDetailSerializer,
     EmployeeManagerDetailSerializer,
+    EmployeeLookupSerializer,
 )
 
 from .permissions import EmployeeObjectPermission
 from rest_framework.exceptions import PermissionDenied
 
 
+from employees.filters import HierarchyFilterBackend
 
 class EmployeeViewSet(viewsets.ModelViewSet):
     """
@@ -37,12 +40,12 @@ class EmployeeViewSet(viewsets.ModelViewSet):
     list: Get all employees (with filters and search)
     retrieve: Get single employee details with all related data
     create: Create new employee (Admin/HR only)
-    update: Update employee (Admin/HR only)
-    destroy: Soft delete employee (Admin only)
+    update: Update employee details
+    destroy: Soft delete (Admin/HR only)
     """
     queryset = Employee.objects.all()
     permission_classes = [IsAuthenticated, EmployeeObjectPermission]
-    filter_backends = [SearchFilter, OrderingFilter]
+    filter_backends = [HierarchyFilterBackend, SearchFilter, OrderingFilter]
     if HAS_DJANGO_FILTER:
         filter_backends.insert(0, DjangoFilterBackend)
     filterset_fields = [
@@ -64,11 +67,7 @@ class EmployeeViewSet(viewsets.ModelViewSet):
     
     # def get_serializer_class(self):
     #     """Use different serializers based on action"""
-    #     if self.action == 'list':
-    #         return EmployeeListSerializer
-    #     elif self.action in ['create', 'update', 'partial_update']:
-    #         return EmployeeCreateUpdateSerializer
-    #     return EmployeeDetailSerializer
+    #     # ... (omitted for brevity)
 
     def get_serializer_class(self):
         if self.action == "list":
@@ -123,38 +122,50 @@ class EmployeeViewSet(viewsets.ModelViewSet):
         return EmployeeManagerDetailSerializer
 
 
-
-
-
     def get_queryset(self):
-        user = self.request.user
-
-        # Superuser always has access
-        if user.is_superuser:
-            return Employee.objects.all()
-
-        # Check role-based access
-        if hasattr(user, "employee_profile"):
-            employee = user.employee_profile
-            
-            # Admin/HR → can list all employees
-            if employee.role and employee.role.can_view_all_employees:
-                return Employee.objects.all()
-            
-            # Manager → can list subordinates
-            if employee.role and employee.role.can_view_subordinates:
-                return Employee.objects.filter(
-                    reporting_manager=employee,
-                    is_active=True
-                )
-
-        # Backward compatibility: is_staff can list all
-        if user.is_staff:
-            return Employee.objects.all()
-
-        # Employee & others → NO list access
-        return Employee.objects.none()
+        """Queryset is filtered by HierarchyFilterBackend"""
+        return super().get_queryset().select_related(
+            'role', 'department', 'designation', 'reporting_manager'
+        ).prefetch_related('emergency_contacts', 'educations', 'work_histories')
     
+
+
+    @action(detail=False, methods=['get'], url_path='lookup-list')
+    def lookup_list(self, request):
+        """
+        Get a lightweight list of employees for lookup selection.
+        Admins/HR: All active employees
+        Managers: Only direct reportees
+        """
+        user = request.user
+        queryset = Employee.objects.filter(is_active=True)
+
+        # Apply visibility filters
+        is_admin_hr = user.is_superuser or user.is_staff
+        if not is_admin_hr and hasattr(user, 'employee_profile'):
+            emp = user.employee_profile
+            if emp.role and emp.role.can_view_all_employees:
+                is_admin_hr = True
+            
+        if not is_admin_hr:
+            if hasattr(user, 'employee_profile'):
+                emp = user.employee_profile
+                if emp.role and emp.role.can_view_subordinates:
+                    queryset = queryset.filter(reporting_manager=emp)
+                else:
+                    # Regular employees can't look up anyone else
+                    return Response({
+                        "error": 0,
+                        "data": []
+                    })
+            else:
+                return Response({"error": 0, "data": []})
+
+        serializer = EmployeeLookupSerializer(queryset, many=True)
+        return Response({
+            "error": 0,
+            "data": serializer.data
+        })
 
     def perform_create(self, serializer):
         user = self.request.user
@@ -269,17 +280,45 @@ class EmployeeViewSet(viewsets.ModelViewSet):
     
     @action(detail=False, methods=['get', 'patch'])
     def me(self, request):
-        """Get or update current logged-in user's employee profile"""
-        if not hasattr(request.user, 'employee_profile'):
-            return Response(
-                {'detail': 'No employee profile found for this user.'},
-                status=status.HTTP_404_NOT_FOUND
-            )
+        """Get or update current logged-in user's employee profile or a specific employee if allowed"""
+        user = request.user
+        target_id = request.query_params.get('userid') or request.query_params.get('employee_id')
         
-        employee = request.user.employee_profile
+        # Determine which employee to show/edit
+        if target_id:
+            # Check permission: Admin, HR, or Manager of the target employee
+            can_access = False
+            if user.is_staff or user.is_superuser:
+                can_access = True
+            elif hasattr(user, 'employee_profile'):
+                requesting_emp = user.employee_profile
+                if requesting_emp.can_view_all_employees():
+                    can_access = True
+                elif str(requesting_emp.id) == str(target_id):
+                    can_access = True
+                elif requesting_emp.can_view_subordinates():
+                    target_employee = Employee.objects.filter(id=target_id, reporting_manager_id=requesting_emp.id).first()
+                    if target_employee:
+                        can_access = True
+            
+            if not can_access:
+                return Response({"error": 1, "message": "Permission denied"}, status=403)
+                
+            employee = get_object_or_404(Employee, id=target_id)
+        else:
+            if not hasattr(user, 'employee_profile'):
+                return Response(
+                    {'detail': 'No employee profile found for this user.'},
+                    status=status.HTTP_404_NOT_FOUND
+                )
+            employee = user.employee_profile
         
         if request.method == 'PATCH':
-            # Allow partial update of self profile
+            # Check if allowed to edit
+            if not self._can_edit_employee(request, employee):
+                return Response({"error": 1, "message": "Permission denied to edit this profile"}, status=403)
+
+            # Allow partial update
             serializer = EmployeeCreateUpdateSerializer(
                 employee, 
                 data=request.data, 
@@ -287,8 +326,15 @@ class EmployeeViewSet(viewsets.ModelViewSet):
             )
             if serializer.is_valid():
                 serializer.save(updated_by=request.user)
-                # Return the detailed view after update
+                
+                # Determine detail serializer based on role (similar to get_serializer_class logic)
                 detail_serializer = EmployeeSelfDetailSerializer(employee)
+                # If admin or manager, they might see more fields
+                if user.is_superuser or (hasattr(user, 'employee_profile') and user.employee_profile.can_view_all_employees()):
+                    detail_serializer = EmployeeAdminDetailSerializer(employee)
+                elif hasattr(user, 'employee_profile') and employee.reporting_manager_id == user.employee_profile.id:
+                    detail_serializer = EmployeeManagerDetailSerializer(employee)
+
                 return Response({
                     "success": True,
                     "message": "Profile updated successfully",
@@ -297,7 +343,14 @@ class EmployeeViewSet(viewsets.ModelViewSet):
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
         
         # GET request
-        serializer = EmployeeSelfDetailSerializer(employee)
+        # Pick the right serializer based on permission context
+        if user.is_superuser or (hasattr(user, 'employee_profile') and user.employee_profile.can_view_all_employees()):
+            serializer = EmployeeAdminDetailSerializer(employee)
+        elif hasattr(user, 'employee_profile') and employee.reporting_manager_id == user.employee_profile.id:
+            serializer = EmployeeManagerDetailSerializer(employee)
+        else:
+            serializer = EmployeeSelfDetailSerializer(employee)
+            
         return Response(serializer.data)
     
     # @action(detail=True, methods=['get'])
@@ -416,22 +469,6 @@ class EmployeeViewSet(viewsets.ModelViewSet):
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 
-# class EmergencyContactViewSet(viewsets.ModelViewSet):
-#     """ViewSet for Emergency Contact management"""
-#     queryset = EmergencyContact.objects.all()
-#     serializer_class = EmergencyContactSerializer
-#     permission_classes = [IsAuthenticated]
-#     filter_backends = [SearchFilter]
-#     if HAS_DJANGO_FILTER:
-#         filter_backends.insert(0, DjangoFilterBackend)
-#     filterset_fields = ['employee', 'is_primary'] if HAS_DJANGO_FILTER else []
-#     search_fields = ['name', 'phone', 'relationship']
-    
-#     def get_permissions(self):
-#         """Set permissions based on action"""
-#         if self.action in ['create', 'update', 'partial_update', 'destroy']:
-#             return [IsAuthenticated(), IsAdminUser()]
-#         return [IsAuthenticated()]
 class EmergencyContactViewSet(viewsets.ModelViewSet):
     """
     READ-ONLY.
@@ -443,24 +480,7 @@ class EmergencyContactViewSet(viewsets.ModelViewSet):
     http_method_names = ["get"]
 
 
-# class EducationViewSet(viewsets.ModelViewSet):
-#     """ViewSet for Education management"""
-#     queryset = Education.objects.all()
-#     serializer_class = EducationSerializer
-#     permission_classes = [IsAuthenticated]
-#     filter_backends = [SearchFilter, OrderingFilter]
-#     if HAS_DJANGO_FILTER:
-#         filter_backends.insert(0, DjangoFilterBackend)
-#     filterset_fields = ['employee', 'level', 'is_completed'] if HAS_DJANGO_FILTER else []
-#     search_fields = ['degree', 'institution', 'field_of_study']
-#     ordering_fields = ['end_date', 'start_date']
-#     ordering = ['-end_date']
-    
-#     def get_permissions(self):
-#         """Set permissions based on action"""
-#         if self.action in ['create', 'update', 'partial_update', 'destroy']:
-#             return [IsAuthenticated(), IsAdminUser()]
-#         return [IsAuthenticated()]
+
 class EducationViewSet(viewsets.ModelViewSet):
     """
     READ-ONLY.
@@ -472,24 +492,7 @@ class EducationViewSet(viewsets.ModelViewSet):
     http_method_names = ["get"]
 
 
-# class WorkHistoryViewSet(viewsets.ModelViewSet):
-#     """ViewSet for Work History management"""
-#     queryset = WorkHistory.objects.all()
-#     serializer_class = WorkHistorySerializer
-#     permission_classes = [IsAuthenticated]
-#     filter_backends = [SearchFilter, OrderingFilter]
-#     if HAS_DJANGO_FILTER:
-#         filter_backends.insert(0, DjangoFilterBackend)
-#     filterset_fields = ['employee', 'is_current'] if HAS_DJANGO_FILTER else []
-#     search_fields = ['company_name', 'job_title']
-#     ordering_fields = ['start_date', 'end_date']
-#     ordering = ['-end_date', '-start_date']
-    
-#     def get_permissions(self):
-#         """Set permissions based on action"""
-#         if self.action in ['create', 'update', 'partial_update', 'destroy']:
-#             return [IsAuthenticated(), IsAdminUser()]
-#         return [IsAuthenticated()]
+
 class WorkHistoryViewSet(viewsets.ModelViewSet):
     """
     READ-ONLY.

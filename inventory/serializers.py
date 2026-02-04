@@ -87,6 +87,28 @@ class DeviceListSerializer(serializers.ModelSerializer):
     condition_display = serializers.CharField(source='get_condition_display', read_only=True)
     is_under_warranty = serializers.BooleanField(read_only=True)
     recent_comments = serializers.SerializerMethodField()
+    # New fields for document URLs
+    photo_url = serializers.SerializerMethodField()
+    warranty_doc_url = serializers.SerializerMethodField()
+    invoice_doc_url = serializers.SerializerMethodField()
+
+    def get_photo_url(self, obj):
+        return self._build_cloudinary_url(obj.photo)
+
+    def get_warranty_doc_url(self, obj):
+        return self._build_cloudinary_url(obj.warranty_doc)
+
+    def get_invoice_doc_url(self, obj):
+        return self._build_cloudinary_url(obj.invoice_doc)
+
+    def _build_cloudinary_url(self, path):
+        if not path:
+            return None
+        if path.startswith('http'):
+            return path
+        import os
+        base = os.getenv('CLOUDINARY_BASE_URL', 'https://res.cloudinary.com/dhlyvqdoi/image/upload')
+        return f"{base}/{path}"
 
     class Meta:
         model = Device
@@ -97,7 +119,8 @@ class DeviceListSerializer(serializers.ModelSerializer):
             'condition', 'condition_display',
             'employee', 'employee_id', 'employee_name',
             'purchase_date', 'warranty_expiry', 'is_under_warranty',
-            'recent_comments', 'is_active', 'created_at'
+            'recent_comments', 'is_active', 'created_at',
+            'photo_url', 'warranty_doc_url', 'invoice_doc_url'
         ]
     
     def get_employee_name(self, obj):
@@ -122,6 +145,28 @@ class DeviceDetailSerializer(serializers.ModelSerializer):
     condition_display = serializers.CharField(source='get_condition_display', read_only=True)
     is_under_warranty = serializers.BooleanField(read_only=True)
     is_assigned = serializers.BooleanField(read_only=True)
+    # Document URLs
+    photo_url = serializers.SerializerMethodField()
+    warranty_doc_url = serializers.SerializerMethodField()
+    invoice_doc_url = serializers.SerializerMethodField()
+
+    def get_photo_url(self, obj):
+        return self._build_cloudinary_url(obj.photo)
+
+    def get_warranty_doc_url(self, obj):
+        return self._build_cloudinary_url(obj.warranty_doc)
+
+    def get_invoice_doc_url(self, obj):
+        return self._build_cloudinary_url(obj.invoice_doc)
+
+    def _build_cloudinary_url(self, path):
+        if not path:
+            return None
+        if path.startswith('http'):
+            return path
+        import os
+        base = os.getenv('CLOUDINARY_BASE_URL', 'https://res.cloudinary.com/dhlyvqdoi/image/upload')
+        return f"{base}/{path}"
 
     class Meta:
         model = Device
@@ -137,7 +182,8 @@ class DeviceDetailSerializer(serializers.ModelSerializer):
             'created_at', 'updated_at',
             'created_by', 'created_by_name', 
             'updated_by', 'updated_by_name',
-            'assignment_history'
+            'assignment_history',
+            'photo_url', 'warranty_doc_url', 'invoice_doc_url'
         ]
         read_only_fields = [
             'created_at', 'updated_at', 'created_by', 'updated_by',
@@ -194,7 +240,9 @@ class DeviceCreateUpdateSerializer(serializers.ModelSerializer):
             'device_type', 'serial_number', 'model_name', 'brand',
             'status', 'condition', 'employee',
             'purchase_date', 'purchase_price', 'warranty_expiry',
-            'notes', 'is_active'
+            'notes', 'is_active',
+            # New document fields (store Cloudinary IDs/URLs)
+            'photo', 'warranty_doc', 'invoice_doc'
         ]
 
     def validate_serial_number(self, value):

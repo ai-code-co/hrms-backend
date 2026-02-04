@@ -5,6 +5,8 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.filters import SearchFilter, OrderingFilter
 from django.utils import timezone
 from django.db.models import Count, Q
+from drf_yasg.utils import swagger_auto_schema
+from drf_yasg import openapi
 
 # Optional django-filter import
 try:
@@ -120,19 +122,22 @@ class DeviceTypeViewSet(viewsets.ModelViewSet):
         })
 
 
+from employees.permissions import IsAdminOrManagerOrOwner
+from employees.filters import HierarchyFilterBackend
+
 class DeviceViewSet(viewsets.ModelViewSet):
     """
     ViewSet for Device management
     
     Permissions:
-    - List/Retrieve all devices: Admin, Manager, HR only
+    - List/Retrieve all devices: Admin, Manager (subordinates), HR only
     - Create/Update/Delete: Admin, Manager, HR only
     - Assign/Unassign: Admin, Manager, HR only
     - My Devices/My History: All authenticated employees (own devices only)
     """
     queryset = Device.objects.all()
-    permission_classes = [IsAuthenticated]
-    filter_backends = [SearchFilter, OrderingFilter]
+    permission_classes = [IsAuthenticated, IsAdminOrManagerOrOwner]
+    filter_backends = [HierarchyFilterBackend, SearchFilter, OrderingFilter]
     if HAS_DJANGO_FILTER:
         filter_backends.insert(0, DjangoFilterBackend)
     filterset_fields = [
@@ -158,28 +163,10 @@ class DeviceViewSet(viewsets.ModelViewSet):
         return DeviceDetailSerializer
 
     def get_queryset(self):
-        """Filter queryset based on user permissions"""
-        queryset = super().get_queryset().select_related(
+        """Queryset is filtered by HierarchyFilterBackend"""
+        return super().get_queryset().select_related(
             'device_type', 'employee', 'created_by', 'updated_by'
         )
-        
-        # Show only active devices for non-admin users
-        if not self.request.user.is_staff:
-            queryset = queryset.filter(is_active=True)
-        
-        # Additional filters from query params
-        status_filter = self.request.query_params.get('status')
-        if status_filter:
-            queryset = queryset.filter(status=status_filter)
-        
-        assigned = self.request.query_params.get('assigned')
-        if assigned:
-            if assigned.lower() == 'true':
-                queryset = queryset.filter(employee__isnull=False)
-            elif assigned.lower() == 'false':
-                queryset = queryset.filter(employee__isnull=True)
-        
-        return queryset
 
     def get_permissions(self):
         """
@@ -203,7 +190,7 @@ class DeviceViewSet(viewsets.ModelViewSet):
             return [IsAuthenticated(), CanViewAllDevices()]
         
         # Other admin actions - Admin/Manager/HR only
-        if self.action in ['assignment_history', 'unassigned_devices', 'warranty_expiring']:
+        if self.action in ['assignment_history', 'unassigned_devices', 'warranty_expiring', 'comments']:
             return [IsAuthenticated(), IsAdminManagerOrHR()]
         
         # My devices & My history - All authenticated employees
@@ -235,12 +222,34 @@ class DeviceViewSet(viewsets.ModelViewSet):
     # EMPLOYEE SELF-SERVICE ENDPOINTS (All authenticated users)
     # ═══════════════════════════════════════════════════════════
 
+
+    @swagger_auto_schema(
+        operation_description="Submit a monthly inventory audit for an assigned device.",
+        request_body=DeviceSubmitAuditSerializer,
+        responses={
+            201: openapi.Response(
+                description="Audit submitted successfully",
+                examples={
+                    "application/json": {
+                        "error": 0,
+                        "message": "Monthly audit submitted successfully. Device status updated.",
+                        "data": {
+                            "audit_id": 1,
+                            "condition": "Excellent",
+                            "status": "Working"
+                        }
+                    }
+                }
+            ),
+            400: "Validation failed or duplicate audit",
+            403: "Permission denied"
+        }
+    )
     @action(detail=True, methods=['post'], url_path='submit-audit')
     def submit_audit(self, request, pk=None):
         """
-        Submit a monthly inventory audit for an assigned device
+        Submit a monthly inventory audit for an assigned device.
         POST /api/inventory/devices/{id}/submit-audit/
-        Body: {"comment": "...", "condition": "good", "status": "working"}
         """
         device = self.get_object()
         user = request.user
@@ -506,6 +515,20 @@ class DeviceViewSet(viewsets.ModelViewSet):
             "data": serializer.data
         })
     
+    @action(detail=True, methods=['get'])
+    def comments(self, request, pk=None):
+        """
+        Get all comments/history for a device
+        GET /api/inventory/devices/{id}/comments/
+        """
+        device = self.get_object()
+        comments = device.comments.all().select_related('employee').order_by('-created_at')
+        serializer = DeviceCommentSerializer(comments, many=True)
+        return Response({
+            "error": 0,
+            "data": serializer.data
+        })
+
     @action(detail=False, methods=['get'], url_path='unassigned')
     def unassigned_devices(self, request):
         """
@@ -564,7 +587,7 @@ class InventoryDashboardViewSet(viewsets.ViewSet):
     def summary(self, request):
         """
         Get dashboard summary with all device types and their statistics
-        GET /api/inventory/dashboard/summary/
+        GET /api/inventory/summary/
         """
         device_types = DeviceType.objects.filter(is_active=True).order_by('name')
         
@@ -626,11 +649,15 @@ class InventoryDashboardViewSet(viewsets.ViewSet):
             "data": serializer.data
         })
 
-    @action(detail=False, methods=['get'], url_path='audit-status')
-    def audit_status(self, request):
+    @swagger_auto_schema(
+        operation_description="Get summary of monthly audits for all assigned devices (HR/Admin view).",
+        responses={200: "Success"}
+    )
+    @action(detail=False, methods=['get'], url_path='audit-summary')
+    def audit_summary(self, request):
         """
-        Get status of monthly audits for all assigned devices
-        GET /api/inventory/dashboard/audit-status/
+        Get summary of monthly audits for all assigned devices
+        GET /api/inventory/audit-summary/
         """
         now = timezone.now()
         start_of_month = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
@@ -677,15 +704,57 @@ class InventoryDashboardViewSet(viewsets.ViewSet):
             }
         })
 
-    @action(detail=True, methods=['get'], url_path='user-audit-status')
-    def user_audit_status(self, request, pk=None):
+    @swagger_auto_schema(
+        operation_description="Get audit status of all devices assigned to a specific employee.",
+        manual_parameters=[
+            openapi.Parameter(
+                'employee_id', openapi.IN_QUERY, 
+                description="ID of the employee (optional if viewing self)", 
+                type=openapi.TYPE_INTEGER
+            )
+        ],
+        responses={
+            200: openapi.Response(
+                description="Success",
+                examples={
+                    "application/json": {
+                        "error": 0,
+                        "data": {
+                            "allItemsAudited": True,
+                            "devices": [
+                                {
+                                    "id": 1,
+                                    "serial_number": "SN123",
+                                    "isAudited": True,
+                                    "device_type_name": "Laptop"
+                                }
+                            ]
+                        }
+                    }
+                }
+            )
+        }
+    )
+    @action(detail=False, methods=['get'], url_path='user-audit-status')
+    def user_audit_status(self, request):
         """
         Get audit status of all devices assigned to a specific employee
-        GET /api/inventory/dashboard/{employee_id}/user-audit-status/
+        GET /api/inventory/user-audit-status/?employee_id=123 (Optional for Admin)
         """
         # 1. Permission Check
         user = request.user
-        target_employee_id = pk
+        
+        # Determine target employee (from query param or self)
+        target_employee_id = request.query_params.get('employee_id')
+        
+        if not target_employee_id:
+            if hasattr(user, 'employee_profile') and user.employee_profile:
+                target_employee_id = user.employee_profile.id
+            else:
+                return Response({
+                    "error": 1,
+                    "message": "employee_id is required or user must have an employee profile."
+                }, status=status.HTTP_400_BAD_REQUEST)
         
         # Check if user is viewing self or is Admin/HR
         is_admin_hr = False
@@ -696,7 +765,7 @@ class InventoryDashboardViewSet(viewsets.ViewSet):
             if emp.designation and emp.designation.level and emp.designation.level <= 3:
                 is_admin_hr = True
             
-            # If not admin/hr, must match the requested pk
+            # If not admin/hr, must match the requested target_employee_id
             if not is_admin_hr and str(emp.id) != str(target_employee_id):
                 return Response({
                     "error": 1,
@@ -720,24 +789,23 @@ class InventoryDashboardViewSet(viewsets.ViewSet):
         
         audited_device_ids = set(audit_comments)
         
+        all_audited = devices.exists()
         device_results = []
-        all_audited = True
         
         for device in devices:
             is_audited = device.id in audited_device_ids
+            device_results.append({
+                "id": device.id,
+                "serial_number": device.serial_number,
+                "isAudited": is_audited,
+            })
             if not is_audited:
                 all_audited = False
-            
-            device_results.append({
-                "deviceId": device.serial_number or f"DEV_{device.id:03d}",
-                "isAudited": is_audited,
-                "deviceName": f"{device.brand} {device.model_name}" if device.brand else device.device_type.name
-            })
             
         return Response({
             "error": 0,
             "data": {
-                "allItemsAudited": all_audited and devices.exists(),
+                "allItemsAudited": all_audited,
                 "devices": device_results
             }
         })
