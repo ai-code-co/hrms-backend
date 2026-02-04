@@ -3,6 +3,7 @@ from .models import Leave, LeaveQuota, LeaveBalance, RestrictedHoliday
 from django.utils import timezone
 from datetime import datetime, date
 from .utils import calculate_working_days
+from employees.models import Employee
 import os
  
 class RestrictedHolidaySerializer(serializers.ModelSerializer):
@@ -15,6 +16,7 @@ class LeaveSerializer(serializers.ModelSerializer):
     is_restricted = serializers.SerializerMethodField()
     doc_link_url = serializers.SerializerMethodField(read_only=True)
     rh_id = serializers.IntegerField(write_only=True, required=False, allow_null=True)
+    employee_id = serializers.IntegerField(write_only=True, required=False)
     restricted_holiday_details = RestrictedHolidaySerializer(source='restricted_holiday', read_only=True)
 
     def get_is_restricted(self, obj):
@@ -26,7 +28,7 @@ class LeaveSerializer(serializers.ModelSerializer):
             'id', 'from_date', 'to_date', 'no_of_days', 'reason', 
             'leave_type', 'is_restricted', 'status', 'day_status', 'late_reason', 
             'doc_link', 'doc_link_url', 'rejection_reason', 'rh_dates', 'created_at' ,
-            'rh_id', 'restricted_holiday', 'restricted_holiday_details'
+            'rh_id', 'restricted_holiday', 'restricted_holiday_details', 'employee_id'
         ]
         read_only_fields = ['created_at', 'doc_link_url', 'restricted_holiday', 'is_restricted', 'restricted_holiday_details']
     
@@ -99,13 +101,31 @@ class LeaveSerializer(serializers.ModelSerializer):
         # NEW CODE (2025-12-22): Get Employee from User
         user = self.context['request'].user
         
-        # Check if user has employee profile
-        if not hasattr(user, 'employee_profile'):
-            raise serializers.ValidationError({
-                'employee': 'User must have an employee profile to apply for leaves. Please contact HR.'
-            })
+        # Determine target employee
+        req_employee_id = data.get('employee_id')
+        employee = None
         
-        employee = user.employee_profile
+        if req_employee_id:
+            # Only staff/superuser can apply for others
+            if not (user.is_staff or user.is_superuser):
+                raise serializers.ValidationError({
+                    "employee_id": "You do not have permission to apply leaves for other employees."
+                })
+            try:
+                employee = Employee.objects.get(id=req_employee_id)
+            except Employee.DoesNotExist:
+                raise serializers.ValidationError({"employee_id": "Employee not found."})
+        else:
+            # Check if user has employee profile
+            if not hasattr(user, 'employee_profile'):
+                raise serializers.ValidationError({
+                    'employee': 'User must have an employee profile to apply for leaves. Please contact HR.'
+                })
+            employee = user.employee_profile
+
+        # Store the resolved employee object in data for the ViewSet to use
+        data['target_employee_obj'] = employee
+        
         leave_type = data.get('leave_type')
         no_of_days = data.get('no_of_days', 0)
         rh_dates = data.get('rh_dates', [])
@@ -229,6 +249,8 @@ class LeaveSerializer(serializers.ModelSerializer):
         # Pop the helper object and the integer ID
         rh_obj = validated_data.pop('restricted_holiday_obj', None)
         validated_data.pop('rh_id', None)
+        validated_data.pop('target_employee_obj', None)
+        validated_data.pop('employee_id', None)
         
         # Create the Leave instance
         leave = Leave.objects.create(**validated_data)
