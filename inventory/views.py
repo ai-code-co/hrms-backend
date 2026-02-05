@@ -689,13 +689,17 @@ class InventoryDashboardViewSet(viewsets.ViewSet):
         
         # 3. Get Audits for the selected month
         # We only care about the LATEST audit for a device in that month
-        audit_comments = DeviceComment.objects.filter(
+        # Since MySQL/TiDB doesn't support .distinct('field'), we filter in Python
+        all_audits = DeviceComment.objects.filter(
             created_at__gte=start_date,
             created_at__lt=end_date,
             comment__startswith='[Monthly Audit]'
-        ).order_by('device', '-created_at').distinct('device')
+        ).order_by('-created_at').select_related('employee')
         
-        audit_map = {a.device_id: a for a in audit_comments}
+        audit_map = {}
+        for a in all_audits:
+            if a.device_id not in audit_map:
+                audit_map[a.device_id] = a
         
         # 4. Calculate Stats
         total_inventories = all_active_devices.count()
@@ -776,6 +780,62 @@ class InventoryDashboardViewSet(viewsets.ViewSet):
                 "audit_list": audit_list,
                 "audit_list_employee_wise": audit_list_employee_wise
             }
+        })
+
+    @action(detail=False, methods=['get'], url_path='audit-history')
+    def audit_history(self, request):
+        """
+        Get historical audit performance for the last 6 months
+        GET /api/inventory/audit-history/
+        """
+        import datetime
+        now = timezone.now()
+        history = []
+        
+        for i in range(6):
+            # Calculate month and year
+            month_idx = now.month - i
+            year_idx = now.year
+            while month_idx <= 0:
+                month_idx += 12
+                year_idx -= 1
+            
+            start_date = timezone.make_aware(datetime.datetime(year_idx, month_idx, 1))
+            if month_idx == 12:
+                next_month = 1
+                next_year = year_idx + 1
+            else:
+                next_month = month_idx + 1
+                next_year = year_idx
+            
+            end_date = timezone.make_aware(datetime.datetime(next_year, next_month, 1))
+            
+            # Count active assignments during this period
+            assigned_count = DeviceAssignment.objects.filter(
+                Q(assigned_date__lt=end_date) & 
+                (Q(returned_date__isnull=True) | Q(returned_date__gt=start_date))
+            ).values('device_id').distinct().count()
+            
+            # Count audits done in this month
+            audit_count = DeviceComment.objects.filter(
+                created_at__gte=start_date,
+                created_at__lt=end_date,
+                comment__startswith='[Monthly Audit]'
+            ).values('device_id').distinct().count()
+            
+            history.append({
+                "month": start_date.strftime("%B"),
+                "year": str(year_idx),
+                "total_assigned": assigned_count,
+                "audited_count": audit_count,
+                "pending_count": max(0, assigned_count - audit_count),
+                "completion_rate": round((audit_count / assigned_count * 100), 1) if assigned_count > 0 else 0
+            })
+            
+        return Response({
+            "error": 0,
+            "message": "Audit History (Last 6 Months)",
+            "data": history[::-1] # Chronological order
         })
 
     @swagger_auto_schema(
