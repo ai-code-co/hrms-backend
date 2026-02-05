@@ -17,6 +17,9 @@ from .serializers import (
 )
 from django.db.models import Q, Sum
 import logging
+from employees.models import Employee
+from leaves.models import Leave
+
 
 logger = logging.getLogger(__name__)
 
@@ -392,11 +395,6 @@ class LeaveViewSet(viewsets.ModelViewSet):
             "data": balance_data
         })
 
-        return Response({
-            "error": 0,
-            "data": balance_data
-        })
-
     @action(detail=False, methods=['get'], url_path='pending-leaves')
     def pending_leaves(self, request):
         """
@@ -406,22 +404,6 @@ class LeaveViewSet(viewsets.ModelViewSet):
              return Response({"error": 1, "message": "Permission denied"}, status=status.HTTP_403_FORBIDDEN)
         
         leaves = Leave.objects.filter(status='Pending').order_by('created_at')
-        serializer = self.get_serializer(leaves, many=True)
-        
-        return Response({
-            "error": 0,
-            "data": serializer.data
-        })
-
-    @action(detail=False, methods=['get'], url_path='all-leaves')
-    def all_leaves(self, request):
-        """
-        Get all leaves of all users (SuperAdmin only).
-        """
-        if not (request.user.is_superuser or request.user.is_staff):
-             return Response({"error": 1, "message": "Permission denied"}, status=status.HTTP_403_FORBIDDEN)
-        
-        leaves = Leave.objects.all().order_by('-created_at')
         serializer = self.get_serializer(leaves, many=True)
         
         return Response({
