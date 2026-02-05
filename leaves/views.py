@@ -412,3 +412,19 @@ class LeaveViewSet(viewsets.ModelViewSet):
             "error": 0,
             "data": serializer.data
         })
+
+    @action(detail=False, methods=['get'], url_path='all-leaves')
+    def all_leaves(self, request):
+        """
+        Get all leaves of all users (SuperAdmin only).
+        """
+        if not (request.user.is_superuser or request.user.is_staff):
+             return Response({"error": 1, "message": "Permission denied"}, status=status.HTTP_403_FORBIDDEN)
+        
+        leaves = Leave.objects.all().order_by('-created_at')
+        serializer = self.get_serializer(leaves, many=True)
+        
+        return Response({
+            "error": 0,
+            "data": serializer.data
+        })
