@@ -67,6 +67,20 @@ class DepartmentViewSet(viewsets.ModelViewSet):
         serializer = EmployeeListSerializer(employees, many=True)
         return Response(serializer.data)
 
+    @action(detail=True, methods=['get'])
+    def designations(self, request, pk=None):
+        """Get all designations in a department"""
+        department = self.get_object()
+        designations = Designation.objects.filter(
+            department=department,
+            is_active=True
+        )
+        serializer = DesignationSerializer(designations, many=True)
+        return Response({
+            "error": 0,
+            "data": serializer.data
+        })
+
 
 class DesignationViewSet(viewsets.ModelViewSet):
     """
@@ -92,6 +106,12 @@ class DesignationViewSet(viewsets.ModelViewSet):
     def get_queryset(self):
         """Filter queryset based on user permissions"""
         queryset = super().get_queryset()
+        
+        # Manual filtering by department if provided in query params
+        department_id = self.request.query_params.get('department')
+        if department_id:
+            queryset = queryset.filter(department_id=department_id)
+
         # Show only active designations for non-admin users
         if not self.request.user.is_staff:
             queryset = queryset.filter(is_active=True)
