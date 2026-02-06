@@ -416,6 +416,7 @@ class LeaveViewSet(viewsets.ModelViewSet):
     responses={200: openapi.Response("Success")}    
     )
     @action(detail=False, methods=['get'], url_path='employee-leave-summary')
+    
     def employee_leave_summary(self, request):
         if not (request.user.is_superuser or request.user.is_staff):
             return Response({"error": 1, "message": "Permission denied"}, status=status.HTTP_403_FORBIDDEN)
@@ -423,35 +424,60 @@ class LeaveViewSet(viewsets.ModelViewSet):
         current_year = timezone.now().year
 
         employees = Employee.objects.filter(is_active=True)
-        balances = LeaveBalance.objects.filter(
-           employee__in=employees,
-           year=current_year
+
+        # Preload all quotas for the year (per employee, leave_type)
+        quotas = LeaveQuota.objects.filter(
+            employee__in=employees,
+            effective_from__year__lte=current_year
         ).select_related('employee')
 
-        summary = {}
-        # print("432 balances",balances)
-        for bal in balances:
-            emp = bal.employee
-            emp_key = emp.id
-            if emp_key not in summary:
-                summary[emp_key] = {
-                    "employee_id": emp.id,
-                    "employee_code": emp.employee_id,
-                    "employee_name": emp.get_full_name(),
-                    "leaves": {
-                        lt.value: {"pending": 0, "used": 0, "remaining": 0}
-                        for lt in Leave.LeaveType
-                    }
-                }
-            print("447 ava",bal.available)    
+        # Preload all leaves for the year (per employee, leave_type)
+        leaves = Leave.objects.filter(
+            employee__in=employees,
+            from_date__year=current_year
+        ).select_related('employee')
 
-       
-            summary[emp_key]["leaves"][bal.leave_type] = {
-                "pending": float(bal.pending),
-                "used": float(bal.used),
-                "remaining": float(bal.available),
+        # maps
+        quota_map = {}
+        for q in quotas:
+            quota_map[(q.employee_id, q.leave_type)] = float(q.yearly_quota)
+
+        used_map = {}
+        pending_map = {}
+
+        for l in leaves:
+            key = (l.employee_id, l.leave_type)
+            if l.status == Leave.Status.APPROVED:
+                used_map[key] = used_map.get(key, 0) + float(l.no_of_days)
+            elif l.status == Leave.Status.PENDING:
+                pending_map[key] = pending_map.get(key, 0) + float(l.no_of_days)
+
+        summary = {}
+        for emp in employees:
+            summary[emp.id] = {
+                "employee_id": emp.id,
+                "employee_code": emp.employee_id,
+                "employee_name": emp.get_full_name(),
+                "leaves": {
+                    lt.value: {"pending": 0, "used": 0, "remaining": 0}
+                    for lt in Leave.LeaveType
+                }
             }
+
+            for lt in Leave.LeaveType:
+                key = (emp.id, lt.value)
+                used = used_map.get(key, 0)
+                pending = pending_map.get(key, 0)
+                quota = quota_map.get(key, 0)
+                remaining = quota - used - pending
+
+                summary[emp.id]["leaves"][lt.value] = {
+                    "pending": pending,
+                    "used": used,
+                    "remaining": remaining
+                }
+
         return Response({
             "error": 0,
             "data": list(summary.values())
-        }) 
+        })
