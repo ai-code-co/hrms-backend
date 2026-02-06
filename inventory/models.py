@@ -323,6 +323,18 @@ class DeviceComment(models.Model):
         related_name='device_comments',
         help_text="Employee who made the comment"
     )
+    COMMENT_TYPE_CHOICES = [
+        ('all_good', 'All Good'),
+        ('issue', 'Issue'),
+        ('critical_issue', 'Critical Issue'),
+    ]
+    comment_type = models.CharField(
+        max_length=20, 
+        choices=COMMENT_TYPE_CHOICES, 
+        default='all_good',
+        null=True,
+        blank=True
+    )
     comment = models.TextField(help_text="The comment/note content")
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)

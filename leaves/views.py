@@ -17,6 +17,9 @@ from .serializers import (
 )
 from django.db.models import Q, Sum
 import logging
+from employees.models import Employee
+from leaves.models import Leave
+
 
 logger = logging.getLogger(__name__)
 
@@ -387,11 +390,6 @@ class LeaveViewSet(viewsets.ModelViewSet):
                 "available": rh_balance.rh_available
             }
         
-        return Response({
-            "error": 0,
-            "data": balance_data
-        })
-
         return Response({
             "error": 0,
             "data": balance_data

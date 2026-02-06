@@ -17,7 +17,19 @@ class LeaveSerializer(serializers.ModelSerializer):
     doc_link_url = serializers.SerializerMethodField(read_only=True)
     rh_id = serializers.IntegerField(write_only=True, required=False, allow_null=True)
     employee_id = serializers.IntegerField(write_only=True, required=False)
+    employee_details = serializers.SerializerMethodField(read_only=True)
     restricted_holiday_details = RestrictedHolidaySerializer(source='restricted_holiday', read_only=True)
+
+    def get_employee_details(self, obj):
+        """Return basic employee details for the dashboard"""
+        if obj.employee:
+            return {
+                "id": obj.employee.id,
+                "employee_id": obj.employee.employee_id,
+                "full_name": obj.employee.get_full_name(),
+                "photo": obj.employee.photo
+            }
+        return None
 
     def get_is_restricted(self, obj):
         return obj.leave_type == Leave.LeaveType.RESTRICTED_HOLIDAY
@@ -28,9 +40,10 @@ class LeaveSerializer(serializers.ModelSerializer):
             'id', 'from_date', 'to_date', 'no_of_days', 'reason', 
             'leave_type', 'is_restricted', 'status', 'day_status', 'late_reason', 
             'doc_link', 'doc_link_url', 'rejection_reason', 'rh_dates', 'created_at' ,
-            'rh_id', 'restricted_holiday', 'restricted_holiday_details', 'employee_id'
+            'rh_id', 'restricted_holiday', 'restricted_holiday_details', 'employee_id',
+            'employee', 'employee_details'
         ]
-        read_only_fields = ['created_at', 'doc_link_url', 'restricted_holiday', 'is_restricted', 'restricted_holiday_details']
+        read_only_fields = ['created_at', 'doc_link_url', 'restricted_holiday', 'is_restricted', 'restricted_holiday_details', 'employee', 'employee_details']
     
     def update(self, instance, validated_data):
         """Override update to enforce permission checks on status changes"""
