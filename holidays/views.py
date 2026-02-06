@@ -96,10 +96,11 @@ class HolidayViewSet(viewsets.ModelViewSet):
         serializer.save(updated_by=self.request.user)
     
     def perform_destroy(self, instance):
-        """Soft delete - set is_active=False instead of hard deleting"""
-        instance.is_active = False
-        instance.updated_by = self.request.user
-        instance.save()
+        # """Soft delete - set is_active=False instead of hard deleting"""
+        # instance.is_active = False
+        # instance.updated_by = self.request.user
+        # instance.save()
+        instance.delete()
     
     @action(detail=False, methods=['get'])
     def upcoming(self, request):
