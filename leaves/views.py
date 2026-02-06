@@ -429,7 +429,7 @@ class LeaveViewSet(viewsets.ModelViewSet):
         ).select_related('employee')
 
         summary = {}
-        print("432 balances",balances)
+        # print("432 balances",balances)
         for bal in balances:
             emp = bal.employee
             emp_key = emp.id
@@ -443,13 +443,15 @@ class LeaveViewSet(viewsets.ModelViewSet):
                         for lt in Leave.LeaveType
                     }
                 }
+            print("447 ava",bal.available)    
 
-        summary[emp_key]["leaves"][bal.leave_type] = {
-            "pending": float(bal.pending),
-            "used": float(bal.used),
-            "remaining": float(bal.available),
-        }
+       
+            summary[emp_key]["leaves"][bal.leave_type] = {
+                "pending": float(bal.pending),
+                "used": float(bal.used),
+                "remaining": float(bal.available),
+            }
         return Response({
-        "error": 0,
-        "data": list(summary.values())
+            "error": 0,
+            "data": list(summary.values())
         }) 
