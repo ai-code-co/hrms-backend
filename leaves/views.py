@@ -410,3 +410,46 @@ class LeaveViewSet(viewsets.ModelViewSet):
             "error": 0,
             "data": serializer.data
         })
+    
+    @swagger_auto_schema(
+    operation_description="Get leave summary for all active employees",
+    responses={200: openapi.Response("Success")}    
+    )
+    @action(detail=False, methods=['get'], url_path='employee-leave-summary')
+    def employee_leave_summary(self, request):
+        if not (request.user.is_superuser or request.user.is_staff):
+            return Response({"error": 1, "message": "Permission denied"}, status=status.HTTP_403_FORBIDDEN)
+
+        current_year = timezone.now().year
+
+        employees = Employee.objects.filter(is_active=True)
+        balances = LeaveBalance.objects.filter(
+           employee__in=employees,
+           year=current_year
+        ).select_related('employee')
+
+        summary = {}
+        print("432 balances",balances)
+        for bal in balances:
+            emp = bal.employee
+            emp_key = emp.id
+            if emp_key not in summary:
+                summary[emp_key] = {
+                    "employee_id": emp.id,
+                    "employee_code": emp.employee_id,
+                    "employee_name": emp.get_full_name(),
+                    "leaves": {
+                        lt.value: {"pending": 0, "used": 0, "remaining": 0}
+                        for lt in Leave.LeaveType
+                    }
+                }
+
+        summary[emp_key]["leaves"][bal.leave_type] = {
+            "pending": float(bal.pending),
+            "used": float(bal.used),
+            "remaining": float(bal.available),
+        }
+        return Response({
+        "error": 0,
+        "data": list(summary.values())
+        }) 
