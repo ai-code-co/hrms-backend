@@ -468,6 +468,46 @@ class EmployeeViewSet(viewsets.ModelViewSet):
             return Response(serializer.data, status=status.HTTP_201_CREATED)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
+    @action(detail=True, methods=['post'], url_path='terminate')
+    def terminate(self, request, pk=None):
+        """
+        Terminate an employee (SuperAdmin/HR only)
+        """
+        user = request.user
+        if not (user.is_superuser or user.is_staff):
+             return Response({"error": 1, "message": "Permission denied"}, status=status.HTTP_403_FORBIDDEN)
+             
+        employee = self.get_object()
+        
+        # Payload can include termination_date, reason, etc.
+        # But for now we just toggle status
+        employee.employment_status = 'terminated'
+        employee.is_active = False
+        employee.updated_by = user
+        employee.save()
+        
+        return Response({
+            "error": 0,
+            "message": f"Employee {employee.get_full_name()} has been terminated successfully."
+        })
+
+    @action(detail=False, methods=['get'], url_path='terminated-list')
+    def terminated_list(self, request):
+        """
+        Get all terminated employees (SuperAdmin/HR only)
+        """
+        user = request.user
+        if not (user.is_superuser or user.is_staff):
+             return Response({"error": 1, "message": "Permission denied"}, status=status.HTTP_403_FORBIDDEN)
+             
+        queryset = Employee.objects.filter(employment_status='terminated')
+        serializer = EmployeeListSerializer(queryset, many=True)
+        
+        return Response({
+            "error": 0,
+            "data": serializer.data
+        })
+
 
 class EmergencyContactViewSet(viewsets.ModelViewSet):
     """

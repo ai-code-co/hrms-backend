@@ -289,6 +289,7 @@ class DeviceViewSet(viewsets.ModelViewSet):
 
         # 4. Process Audit
         comment_text = serializer.validated_data['comment']
+        comment_type = serializer.validated_data.get('comment_type', 'all_good')
         condition = serializer.validated_data['condition']
         status_val = serializer.validated_data['status']
 
@@ -302,6 +303,7 @@ class DeviceViewSet(viewsets.ModelViewSet):
         audit_comment = DeviceComment.objects.create(
             device=device,
             employee=user.employee_profile,
+            comment_type=comment_type,
             comment=f"[Monthly Audit] {comment_text}"
         )
 
@@ -657,51 +659,183 @@ class InventoryDashboardViewSet(viewsets.ViewSet):
     def audit_summary(self, request):
         """
         Get summary of monthly audits for all assigned devices
-        GET /api/inventory/audit-summary/
+        GET /api/inventory/audit-summary/?month=1&year=2026
         """
+        import datetime
+        from django.db.models import Max
+        
+        # 1. Parse Month/Year
         now = timezone.now()
-        start_of_month = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+        try:
+            month = int(request.query_params.get('month', now.month))
+            year = int(request.query_params.get('year', now.year))
+            start_date = datetime.datetime(year, month, 1)
+            if month == 12:
+                end_date = datetime.datetime(year + 1, 1, 1)
+            else:
+                end_date = datetime.datetime(year, month + 1, 1)
+            
+            # Make timezone aware
+            start_date = timezone.make_aware(start_date)
+            end_date = timezone.make_aware(end_date)
+        except (ValueError, TypeError):
+            start_date = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+            end_date = (start_date + datetime.timedelta(days=32)).replace(day=1)
+            month = start_date.month
+            year = start_date.year
+
+        # 2. Base Querysets
+        all_active_devices = Device.objects.filter(is_active=True).select_related('device_type', 'employee')
         
-        # Get all assigned devices
-        assigned_devices = Device.objects.filter(
-            employee__isnull=False,
-            is_active=True
-        ).select_related('device_type', 'employee')
-        
-        # Get all audit comments for this month
-        audit_comments = DeviceComment.objects.filter(
-            created_at__gte=start_of_month,
+        # 3. Get Audits for the selected month
+        # We only care about the LATEST audit for a device in that month
+        # Since MySQL/TiDB doesn't support .distinct('field'), we filter in Python
+        all_audits = DeviceComment.objects.filter(
+            created_at__gte=start_date,
+            created_at__lt=end_date,
             comment__startswith='[Monthly Audit]'
-        ).values('device_id', 'created_at', 'comment')
+        ).order_by('-created_at').select_related('employee')
         
-        # Map device_id to audit info
-        audit_map = {a['device_id']: a for a in audit_comments}
+        audit_map = {}
+        for a in all_audits:
+            if a.device_id not in audit_map:
+                audit_map[a.device_id] = a
         
-        results = []
-        for device in assigned_devices:
+        # 4. Calculate Stats
+        total_inventories = all_active_devices.count()
+        unassigned_inventories = all_active_devices.filter(employee__isnull=True).count()
+        assigned_devices = all_active_devices.filter(employee__isnull=False)
+        
+        audit_done_count = len(audit_map)
+        audit_pending_count = max(0, assigned_devices.count() - audit_done_count)
+        
+        # Breakdown of audit types
+        audit_good = 0
+        audit_issue = 0
+        audit_critical_issue = 0
+        
+        for audit in audit_map.values():
+            if audit.comment_type == 'all_good':
+                audit_good += 1
+            elif audit.comment_type == 'issue':
+                audit_issue += 1
+            elif audit.comment_type == 'critical_issue':
+                audit_critical_issue += 1
+            else:
+                # Default to good if not specified
+                audit_good += 1
+
+        # 5. Build Audit List
+        audit_list = []
+        for device in all_active_devices:
             audit = audit_map.get(device.id)
-            results.append({
-                'device_id': device.id,
-                'serial_number': device.serial_number,
-                'device_type': device.device_type.name,
-                'employee_name': device.employee.get_full_name(),
-                'employee_id': device.employee.employee_id,
-                'is_audited': audit is not None,
-                'audit_date': audit['created_at'] if audit else None,
-                'audit_comment': audit['comment'] if audit else None,
-                'current_condition': device.get_condition_display(),
-                'current_status': device.get_status_display()
+            
+            # Map fields to match USER requested format
+            audit_list.append({
+                "id": str(device.id),
+                "machine_type": device.device_type.name,
+                "machine_name": device.brand or device.model_name or "Unknown",
+                "serial_number": device.serial_number or "",
+                "bill_number": device.notes[:20] if device.notes else "", # Placeholder mapping
+                "machine_id": str(device.id),
+                "assigned_user_id": str(device.employee.id) if device.employee else None,
+                "file_name": device.photo if device.photo else None,
+                "audit_id": str(audit.id) if audit else None,
+                "inventory_id": str(device.id),
+                "month": str(month),
+                "year": str(year),
+                "audit_done_by_user_id": str(audit.employee.id) if audit and audit.employee else None,
+                "comment_type": audit.comment_type if audit else None,
+                "comment": audit.comment.replace('[Monthly Audit] ', '') if audit else None,
+                "audit_done_by": audit.employee.get_full_name() if audit and audit.employee else None,
+                "assigned_to": device.employee.get_full_name() if device.employee else None,
+            })
+        employee_map = {}
+        for item in audit_list:
+            emp_name = item["assigned_to"] or "Unassigned"
+            if emp_name not in employee_map:
+                employee_map[emp_name] = []
+            employee_map[emp_name].append(item)
+            
+        audit_list_employee_wise = []
+        for emp_name, items in employee_map.items():
+            audit_list_employee_wise.append({
+                "employee_name": emp_name,
+                "items": items
+            })
+
+        return Response({
+            "error": 0,
+            "message": "Inventory Audit List",
+            "data": {
+                "stats": {
+                    "total_inventories": total_inventories,
+                    "audit_done": audit_done_count,
+                    "audit_pending": audit_pending_count,
+                    "unassigned_inventories": unassigned_inventories,
+                    "audit_good": audit_good,
+                    "audit_issue": audit_issue,
+                    "audit_critical_issue": audit_critical_issue
+                },
+                "audit_list": audit_list,
+                "audit_list_employee_wise": audit_list_employee_wise
+            }
+        })
+
+    @action(detail=False, methods=['get'], url_path='audit-history')
+    def audit_history(self, request):
+        """
+        Get historical audit performance for the last 6 months
+        GET /api/inventory/audit-history/
+        """
+        import datetime
+        now = timezone.now()
+        history = []
+        
+        for i in range(6):
+            # Calculate month and year
+            month_idx = now.month - i
+            year_idx = now.year
+            while month_idx <= 0:
+                month_idx += 12
+                year_idx -= 1
+            
+            start_date = timezone.make_aware(datetime.datetime(year_idx, month_idx, 1))
+            if month_idx == 12:
+                next_month = 1
+                next_year = year_idx + 1
+            else:
+                next_month = month_idx + 1
+                next_year = year_idx
+            
+            end_date = timezone.make_aware(datetime.datetime(next_year, next_month, 1))
+            
+            # Count active assignments during this period
+            assigned_count = DeviceAssignment.objects.filter(
+                Q(assigned_date__lt=end_date) & 
+                (Q(returned_date__isnull=True) | Q(returned_date__gt=start_date))
+            ).values('device_id').distinct().count()
+            
+            # Count audits done in this month
+            audit_count = DeviceComment.objects.filter(
+                created_at__gte=start_date,
+                created_at__lt=end_date,
+                comment__startswith='[Monthly Audit]'
+            ).values('device_id').distinct().count()
+            
+            history.append({
+                "month": start_date.strftime("%B"),
+                "year": str(year_idx),
+                "total_assigned": assigned_count,
+                "audited_count": audit_count,
+                "pending_count": max(0, assigned_count - audit_count),
+                "completion_rate": round((audit_count / assigned_count * 100), 1) if assigned_count > 0 else 0
             })
             
         return Response({
             "error": 0,
-            "data": {
-                "month": now.strftime('%B %Y'),
-                "total_assigned": assigned_devices.count(),
-                "audited_count": len(audit_map),
-                "pending_count": assigned_devices.count() - len(audit_map),
-                "details": results
-            }
+            "message": "Audit History (Last 6 Months)",
+            "data": history[::-1] # Chronological order
         })
 
     @swagger_auto_schema(
