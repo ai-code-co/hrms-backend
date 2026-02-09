@@ -488,6 +488,25 @@ class EmployeeViewSet(viewsets.ModelViewSet):
             return Response(serializer.data, status=status.HTTP_201_CREATED)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
+    @action(detail=True, methods=['delete'], url_path='documents/(?P<doc_id>[^/.]+)')
+    def delete_document(self, request, pk=None, doc_id=None):
+        """Delete an employee document"""
+        employee = self.get_object()
+        if not self._can_edit_employee(request, employee):
+            return Response(
+                {"detail": "You do not have permission to modify this employee profile."},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        
+        document = get_object_or_404(EmployeeDocument, pk=doc_id, employee=employee)
+        document_type = document.get_document_type_display()
+        document.delete()
+        
+        return Response({
+            "success": True,
+            "message": f"Document '{document_type}' deleted successfully."
+        }, status=status.HTTP_200_OK)
+
     @action(detail=True, methods=['patch'], url_path='verify-document/(?P<doc_id>[^/.]+)')
     def verify_document(self, request, pk=None, doc_id=None):
         """Verify an employee document (Admin/HR only)"""
@@ -628,3 +647,25 @@ class EmployeeDocumentViewSet(viewsets.ModelViewSet):
             return queryset.filter(employee=emp)
             
         return queryset.none()
+
+    def perform_destroy(self, instance):
+        """Check permission before deleting"""
+        user = self.request.user
+        can_delete = False
+        
+        if user.is_superuser or user.is_staff:
+            can_delete = True
+        elif hasattr(user, 'employee_profile'):
+            emp = user.employee_profile
+            # Owner can delete their own documents
+            if instance.employee_id == emp.id:
+                can_delete = True
+            # Admin/HR role can delete
+            elif emp.role and emp.role.can_view_all_employees:
+                can_delete = True
+        
+        if not can_delete:
+            from rest_framework.exceptions import PermissionDenied
+            raise PermissionDenied("You do not have permission to delete this document.")
+        
+        instance.delete()
