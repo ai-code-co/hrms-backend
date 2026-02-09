@@ -1,5 +1,6 @@
 import os
 from rest_framework import serializers
+from django.db import models, transaction
 from .models import Employee, EmergencyContact, Education, WorkHistory, Role
 from departments.serializers import DepartmentSerializer, DesignationSerializer
 
@@ -188,6 +189,10 @@ class EmployeeLookupSerializer(serializers.ModelSerializer):
 class EmployeeCreateUpdateSerializer(serializers.ModelSerializer):
     """Serializer for creating/updating employees"""
     
+    emergency_contacts = EmergencyContactSerializer(many=True, required=False)
+    educations = EducationSerializer(many=True, required=False)
+    work_histories = WorkHistorySerializer(many=True, required=False)
+
     class Meta:
         model = Employee
         fields = [
@@ -204,7 +209,8 @@ class EmployeeCreateUpdateSerializer(serializers.ModelSerializer):
             'probation_end_date', 'confirmation_date', 'work_location',
             'pan_number', 'aadhar_number', 'passport_number',
             'driving_license', 'bank_name', 'account_number',
-            'ifsc_code', 'account_holder_name', 'is_active'
+            'ifsc_code', 'account_holder_name', 'is_active',
+            'emergency_contacts', 'educations', 'work_histories'
         ]
     
     def validate_email(self, value):
@@ -327,6 +333,98 @@ class EmployeeCreateUpdateSerializer(serializers.ModelSerializer):
                 })
         
         return data
+
+    @transaction.atomic
+    def create(self, validated_data):
+        """Handle nested creation of emergency contacts, educations, and work history"""
+        emergency_contacts_data = validated_data.pop('emergency_contacts', [])
+        educations_data = validated_data.pop('educations', [])
+        work_histories_data = validated_data.pop('work_histories', [])
+        
+        # System fields passed from perform_create
+        created_by = validated_data.get('created_by')
+        updated_by = validated_data.get('updated_by')
+        
+        employee = Employee.objects.create(**validated_data)
+        
+        # Create emergency contacts
+        for contact_data in emergency_contacts_data:
+            EmergencyContact.objects.create(
+                employee=employee,
+                created_by=created_by,
+                updated_by=updated_by,
+                **contact_data
+            )
+            
+        # Create education records
+        for education_data in educations_data:
+            Education.objects.create(
+                employee=employee,
+                created_by=created_by,
+                updated_by=updated_by,
+                **education_data
+            )
+            
+        # Create work history records
+        for history_data in work_histories_data:
+            WorkHistory.objects.create(
+                employee=employee,
+                created_by=created_by,
+                updated_by=updated_by,
+                **history_data
+            )
+            
+        return employee
+
+    @transaction.atomic
+    def update(self, instance, validated_data):
+        """Handle nested updates for emergency contacts, educations, and work history"""
+        emergency_contacts_data = validated_data.pop('emergency_contacts', None)
+        educations_data = validated_data.pop('educations', None)
+        work_histories_data = validated_data.pop('work_histories', None)
+        
+        # System field passed from perform_update
+        updated_by = validated_data.get('updated_by')
+        
+        # Update main employee fields
+        for attr, value in validated_data.items():
+            setattr(instance, attr, value)
+        instance.save()
+        
+        # Update emergency contacts (replace existing with new list)
+        if emergency_contacts_data is not None:
+            instance.emergency_contacts.all().delete()
+            for contact_data in emergency_contacts_data:
+                EmergencyContact.objects.create(
+                    employee=instance,
+                    updated_by=updated_by,
+                    created_by=instance.created_by, # Keep original creator
+                    **contact_data
+                )
+                
+        # Update education records
+        if educations_data is not None:
+            instance.educations.all().delete()
+            for education_data in educations_data:
+                Education.objects.create(
+                    employee=instance,
+                    updated_by=updated_by,
+                    created_by=instance.created_by,
+                    **education_data
+                )
+                
+        # Update work history
+        if work_histories_data is not None:
+            instance.work_histories.all().delete()
+            for history_data in work_histories_data:
+                WorkHistory.objects.create(
+                    employee=instance,
+                    updated_by=updated_by,
+                    created_by=instance.created_by,
+                    **history_data
+                )
+                
+        return instance
 
 
 class EmployeeAdminDetailSerializer(EmployeeDetailSerializer):
