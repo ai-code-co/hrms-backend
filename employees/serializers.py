@@ -1,7 +1,7 @@
 import os
 from rest_framework import serializers
 from django.db import models, transaction
-from .models import Employee, EmergencyContact, Education, WorkHistory, Role
+from .models import Employee, EmergencyContact, Education, WorkHistory, Role, EmployeeDocument
 from departments.serializers import DepartmentSerializer, DesignationSerializer
 
 
@@ -66,6 +66,21 @@ class WorkHistorySerializer(serializers.ModelSerializer):
         read_only_fields = ['created_at', 'updated_at', 'created_by', 'updated_by']
 
 
+class EmployeeDocumentSerializer(serializers.ModelSerializer):
+    """Serializer for Employee Document"""
+    document_type_display = serializers.CharField(source='get_document_type_display', read_only=True)
+    
+    class Meta:
+        model = EmployeeDocument
+        fields = [
+            'id', 'document_type', 'document_type_display', 
+            'document_url', 'is_verified', 'verified_at', 
+            'verified_by', 'created_at', 'updated_at',
+            'created_by'
+        ]
+        read_only_fields = ['created_at', 'updated_at', 'created_by', 'verified_at', 'verified_by', 'is_verified']
+
+
 class EmployeeListSerializer(serializers.ModelSerializer):
     """Lightweight serializer for employee lists"""
     full_name = serializers.CharField(source='get_full_name', read_only=True)
@@ -94,7 +109,10 @@ class EmployeeDetailSerializer(serializers.ModelSerializer):
     emergency_contacts = EmergencyContactSerializer(many=True, read_only=True)
     educations = EducationSerializer(many=True, read_only=True)
     work_histories = WorkHistorySerializer(many=True, read_only=True)
+    documents = EmployeeDocumentSerializer(many=True, read_only=True)
     photo_url = serializers.SerializerMethodField()
+    are_required_documents_submitted = serializers.BooleanField(read_only=True)
+    missing_required_documents = serializers.ListField(child=serializers.CharField(), read_only=True)
     
     class Meta:
         model = Employee
@@ -125,7 +143,8 @@ class EmployeeDetailSerializer(serializers.ModelSerializer):
             'bank_name', 'account_number', 'ifsc_code', 
             'account_holder_name',
             # Related Data
-            'emergency_contacts', 'educations', 'work_histories',
+            'emergency_contacts', 'educations', 'work_histories', 'documents',
+            'are_required_documents_submitted', 'missing_required_documents',
             # System
             'is_active', 'created_at', 'updated_at',
             'created_by', 'updated_by'
@@ -192,6 +211,7 @@ class EmployeeCreateUpdateSerializer(serializers.ModelSerializer):
     emergency_contacts = EmergencyContactSerializer(many=True, required=False)
     educations = EducationSerializer(many=True, required=False)
     work_histories = WorkHistorySerializer(many=True, required=False)
+    documents = EmployeeDocumentSerializer(many=True, required=False)
 
     class Meta:
         model = Employee
@@ -210,7 +230,7 @@ class EmployeeCreateUpdateSerializer(serializers.ModelSerializer):
             'pan_number', 'aadhar_number', 'passport_number',
             'driving_license', 'bank_name', 'account_number',
             'ifsc_code', 'account_holder_name', 'is_active',
-            'emergency_contacts', 'educations', 'work_histories'
+            'emergency_contacts', 'educations', 'work_histories', 'documents'
         ]
     
     def validate_email(self, value):
@@ -340,6 +360,7 @@ class EmployeeCreateUpdateSerializer(serializers.ModelSerializer):
         emergency_contacts_data = validated_data.pop('emergency_contacts', [])
         educations_data = validated_data.pop('educations', [])
         work_histories_data = validated_data.pop('work_histories', [])
+        documents_data = validated_data.pop('documents', [])
         
         # System fields passed from perform_create
         created_by = validated_data.get('created_by')
@@ -374,6 +395,14 @@ class EmployeeCreateUpdateSerializer(serializers.ModelSerializer):
                 **history_data
             )
             
+        # Create documents
+        for document_data in documents_data:
+            EmployeeDocument.objects.create(
+                employee=employee,
+                created_by=created_by,
+                **document_data
+            )
+            
         return employee
 
     @transaction.atomic
@@ -382,6 +411,7 @@ class EmployeeCreateUpdateSerializer(serializers.ModelSerializer):
         emergency_contacts_data = validated_data.pop('emergency_contacts', None)
         educations_data = validated_data.pop('educations', None)
         work_histories_data = validated_data.pop('work_histories', None)
+        documents_data = validated_data.pop('documents', None)
         
         # System field passed from perform_update
         updated_by = validated_data.get('updated_by')
@@ -422,6 +452,20 @@ class EmployeeCreateUpdateSerializer(serializers.ModelSerializer):
                     updated_by=updated_by,
                     created_by=instance.created_by,
                     **history_data
+                )
+        
+        # Update documents
+        if documents_data is not None:
+            # We don't necessarily want to delete all documents, 
+            # but for consistency with others, we'll replace the provided types
+            for doc_data in documents_data:
+                EmployeeDocument.objects.update_or_create(
+                    employee=instance,
+                    document_type=doc_data.get('document_type'),
+                    defaults={
+                        'document_url': doc_data.get('document_url'),
+                        'created_by': instance.created_by if not instance.documents.filter(document_type=doc_data.get('document_type')).exists() else None
+                    }
                 )
                 
         return instance

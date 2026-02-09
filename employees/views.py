@@ -13,7 +13,7 @@ try:
 except ImportError:
     HAS_DJANGO_FILTER = False
 
-from .models import Employee, EmergencyContact, Education, WorkHistory
+from .models import Employee, EmergencyContact, Education, WorkHistory, EmployeeDocument
 from .serializers import (
     EmployeeListSerializer,
     EmployeeDetailSerializer,
@@ -25,6 +25,7 @@ from .serializers import (
     EmployeeSelfDetailSerializer,
     EmployeeManagerDetailSerializer,
     EmployeeLookupSerializer,
+    EmployeeDocumentSerializer,
 )
 
 from .permissions import EmployeeObjectPermission
@@ -467,6 +468,57 @@ class EmployeeViewSet(viewsets.ModelViewSet):
             )
             return Response(serializer.data, status=status.HTTP_201_CREATED)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+    @action(detail=True, methods=['post'], url_path='documents')
+    def add_document(self, request, pk=None):
+        """Add a document to employee"""
+        employee = self.get_object()
+        if not self._can_edit_employee(request, employee):
+            return Response(
+                {"detail": "You do not have permission to modify this employee."},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        
+        serializer = EmployeeDocumentSerializer(data=request.data)
+        if serializer.is_valid():
+            serializer.save(
+                employee=employee,
+                created_by=request.user
+            )
+            return Response(serializer.data, status=status.HTTP_201_CREATED)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+    @action(detail=True, methods=['patch'], url_path='verify-document/(?P<doc_id>[^/.]+)')
+    def verify_document(self, request, pk=None, doc_id=None):
+        """Verify an employee document (Admin/HR only)"""
+        user = request.user
+        # Check if user is Admin/HR
+        is_admin_hr = user.is_superuser or user.is_staff
+        if not is_admin_hr and hasattr(user, 'employee_profile'):
+            if user.employee_profile.role and user.employee_profile.role.can_view_all_employees:
+                is_admin_hr = True
+        
+        if not is_admin_hr:
+            return Response({"error": 1, "message": "Permission denied. Only Admin/HR can verify documents."}, status=403)
+
+        document = get_object_or_404(EmployeeDocument, pk=doc_id, employee_id=pk)
+        
+        from django.utils import timezone
+        document.is_verified = request.data.get('is_verified', True)
+        if document.is_verified:
+            document.verified_at = timezone.now()
+            document.verified_by = user
+        else:
+            document.verified_at = None
+            document.verified_by = None
+        
+        document.save()
+        
+        return Response({
+            "success": True,
+            "message": f"Document {document.get_document_type_display()} verification status updated.",
+            "data": EmployeeDocumentSerializer(document).data
+        })
 
     @action(detail=True, methods=['post'], url_path='terminate')
     def terminate(self, request, pk=None):

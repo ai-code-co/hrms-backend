@@ -283,6 +283,20 @@ class Employee(models.Model):
         """Check if employee is regular Employee"""
         return self.has_role('Employee') or (self.role is None)
 
+    @property
+    def are_required_documents_submitted(self):
+        """Check if all required documents are submitted"""
+        required_types = [doc[0] for doc in EmployeeDocument.DOCUMENT_TYPES if doc[2]]
+        submitted_types = self.documents.values_list('document_type', flat=True)
+        return all(doc_type in submitted_types for doc_type in required_types)
+
+    @property
+    def missing_required_documents(self):
+        """Returns a list of missing required document types"""
+        required_types = {doc[0]: doc[1] for doc in EmployeeDocument.DOCUMENT_TYPES if doc[2]}
+        submitted_types = set(self.documents.values_list('document_type', flat=True))
+        return [name for doc_type, name in required_types.items() if doc_type not in submitted_types]
+
     def can_view_all_employees(self):
         """Check if employee can view all employees"""
         if self.role:
@@ -430,6 +444,66 @@ class EmergencyContact(models.Model):
                 is_primary=True
             ).exclude(pk=self.pk).update(is_primary=False)
         super().save(*args, **kwargs)
+
+
+class EmployeeDocument(models.Model):
+    """Documents related to an employee (CV, PAN, etc.)"""
+    DOCUMENT_TYPES = [
+        # (code, label, is_required)
+        ('cv', 'CV', True),
+        ('pan_card', 'PAN Card', True),
+        ('address_proof', 'Address Proof', True),
+        ('photo', 'Photo', True),
+        ('offer_letter', 'Offer Letter', False),
+        ('appointment_letter', 'Appointment Letter', False),
+        ('prev_exp_letter', 'Previous Company Experience Letter', False),
+        ('prev_offer_letter', 'Previous Company Offer Letter', False),
+        ('prev_salary_slip', 'Previous Company Salary Slip', False),
+        ('prev_other_docs', 'Previous Company Other Documents', False),
+        ('qualification_cert', 'Qualification Certificate', True),
+    ]
+
+    employee = models.ForeignKey(
+        Employee,
+        on_delete=models.CASCADE,
+        related_name='documents'
+    )
+    document_type = models.CharField(
+        max_length=50, 
+        choices=[(d[0], d[1]) for d in DOCUMENT_TYPES]
+    )
+    document_url = models.CharField(
+        max_length=500, 
+        help_text="Cloudinary URL or public ID"
+    )
+    is_verified = models.BooleanField(default=False)
+    verified_at = models.DateTimeField(null=True, blank=True)
+    verified_by = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='verified_documents'
+    )
+    
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    created_by = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='created_employee_documents'
+    )
+
+    class Meta:
+        unique_together = ('employee', 'document_type')
+        ordering = ['document_type']
+        verbose_name = 'Employee Document'
+        verbose_name_plural = 'Employee Documents'
+
+    def __str__(self):
+        return f"{self.get_document_type_display()} - {self.employee.get_full_name()}"
 
 
 class Education(models.Model):
