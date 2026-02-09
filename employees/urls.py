@@ -1,8 +1,18 @@
 from django.urls import path, include
 from rest_framework.routers import DefaultRouter
-from .views import EmployeeViewSet
+from .views import (
+    EmployeeViewSet,
+    EmergencyContactViewSet,
+    EducationViewSet,
+    WorkHistoryViewSet,
+    EmployeeDocumentViewSet
+)
 
 router = DefaultRouter()
+router.register(r'emergency-contacts', EmergencyContactViewSet, basename='emergency-contact')
+router.register(r'educations', EducationViewSet, basename='education')
+router.register(r'work-histories', WorkHistoryViewSet, basename='work-history')
+router.register(r'all-documents', EmployeeDocumentViewSet, basename='employee-document')
 router.register(r'', EmployeeViewSet, basename='employee')
 
 urlpatterns = [
