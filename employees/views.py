@@ -594,3 +594,37 @@ class WorkHistoryViewSet(viewsets.ModelViewSet):
     serializer_class = WorkHistorySerializer
     permission_classes = [IsAuthenticated]
     http_method_names = ["get"]  # 🔒 LOCKED
+
+
+class EmployeeDocumentViewSet(viewsets.ModelViewSet):
+    """
+    ViewSet for Employee Documents.
+    Allows HR/Admin to list and filter all documents.
+    """
+    queryset = EmployeeDocument.objects.all()
+    serializer_class = EmployeeDocumentSerializer
+    permission_classes = [IsAuthenticated]
+    filter_backends = [SearchFilter, OrderingFilter]
+    if HAS_DJANGO_FILTER:
+        filter_backends.insert(0, DjangoFilterBackend)
+    filterset_fields = ['employee', 'document_type', 'is_verified'] if HAS_DJANGO_FILTER else []
+    search_fields = ['employee__first_name', 'employee__last_name', 'document_type']
+    
+    def get_queryset(self):
+        user = self.request.user
+        queryset = super().get_queryset()
+        
+        # Admin/HR can see all
+        if user.is_superuser or user.is_staff:
+            return queryset
+        
+        if hasattr(user, 'employee_profile'):
+            emp = user.employee_profile
+            # Role-based check
+            if emp.role and emp.role.can_view_all_employees:
+                return queryset
+            
+            # Regular employees only see their own docs
+            return queryset.filter(employee=emp)
+            
+        return queryset.none()
