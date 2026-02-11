@@ -7,6 +7,8 @@ from django.utils import timezone
 from django.db.models import Count, Q
 from drf_yasg.utils import swagger_auto_schema
 from drf_yasg import openapi
+from rest_framework.parsers import MultiPartParser, FormParser
+
 
 # Optional django-filter import
 try:
@@ -138,6 +140,8 @@ class DeviceViewSet(viewsets.ModelViewSet):
     queryset = Device.objects.all()
     permission_classes = [IsAuthenticated, IsAdminOrManagerOrOwner]
     filter_backends = [HierarchyFilterBackend, SearchFilter, OrderingFilter]
+    
+    
     if HAS_DJANGO_FILTER:
         filter_backends.insert(0, DjangoFilterBackend)
     filterset_fields = [
@@ -382,6 +386,61 @@ class DeviceViewSet(viewsets.ModelViewSet):
     # ADMIN/MANAGER/HR ONLY ENDPOINTS
     # ═══════════════════════════════════════════════════════════
 
+    @action(detail=True, methods=['post'], url_path='upload-document',parser_classes=[MultiPartParser, FormParser])
+    def upload_document(self, request, pk=None):
+        device = self.get_object()
+        file_obj = request.FILES.get('file')
+        doc_type = request.data.get('doc_type')  # photo / warranty_doc / invoice_doc
+
+        if not file_obj:
+            return Response({"error": 1, "message": "No file provided"}, status=400)
+
+        if doc_type not in ['photo', 'warranty_doc', 'invoice_doc']:
+            return Response({"error": 1, "message": "Invalid doc_type"}, status=400)
+
+        cloudinary.config(
+            cloud_name=os.getenv('CLOUDINARY_CLOUD_NAME'),
+            api_key=os.getenv('CLOUDINARY_API_KEY'),
+            api_secret=os.getenv('CLOUDINARY_API_SECRET'),
+        )
+
+        resource_type = "image" if (file_obj.content_type or "").startswith("image/") else "raw"
+        uploaded = cloudinary.uploader.upload(
+            file_obj,
+            folder=f"hrms/devices/{device.id}",
+            resource_type=resource_type,
+            original_filename=True
+        )
+
+        file_url = uploaded.get("secure_url")
+        if not file_url:
+            return Response({"error": 1, "message": "Upload failed"}, status=500)
+
+        # updates Device table field: photo / warranty_doc / invoice_doc
+        setattr(device, doc_type, file_url)
+        device.updated_by = request.user
+        device.save(update_fields=[doc_type, "updated_by", "updated_at"])
+
+        # sync only photo to EmployeeDocument 
+        # if device.employee and doc_type == "photo":
+        #     EmployeeDocument.objects.update_or_create(
+        #         employee=device.employee,
+        #         document_type="photo",
+        #         defaults={"document_url": file_url, "created_by": request.user}
+        #     )
+
+        return Response({
+            "error": 0,
+            "message": "Document uploaded successfully",
+            "data": {
+                "device_id": device.id,
+                "doc_type": doc_type,
+                "url": file_url,
+                "public_id": uploaded.get("public_id")
+            }
+        }, status=200)
+
+    
     @action(detail=True, methods=['post'])
     def assign(self, request, pk=None):
         """
