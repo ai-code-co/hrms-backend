@@ -632,19 +632,35 @@ class EmployeeDocumentViewSet(viewsets.ModelViewSet):
     def get_queryset(self):
         user = self.request.user
         queryset = super().get_queryset()
+        employee_id = self.request.query_params.get("employee")
         
         # Admin/HR can see all
         if user.is_superuser or user.is_staff:
-            return queryset
-        
-        if hasattr(user, 'employee_profile'):
-            emp = user.employee_profile
-            # Role-based check
-            if emp.role and emp.role.can_view_all_employees:
+            if employee_id:
+                pass
+            else:
                 return queryset
+        
+        if employee_id:
+            return queryset.filter(employee_id=employee_id) 
             
-            # Regular employees only see their own docs
-            return queryset.filter(employee=emp)
+        document_type = self.request.query_params.get("document_type")
+        if document_type:
+            return queryset.filter(document_type=document_type)
+
+        is_verified = self.request.query_params.get("is_verified")
+        if is_verified in ["true", "false"]:
+            return queryset.filter(is_verified=(is_verified == "true"))
+        
+        # if hasattr(user, 'employee_profile'):
+        #     emp = user.employee_profile
+    
+        #     # Role-based check
+        #     if emp.role and emp.role.can_view_all_employees:
+        #         return queryset
+            
+        #     # Regular employees only see their own docs
+        #     return queryset.filter(employee=emp)
             
         return queryset.none()
 
