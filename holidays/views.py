@@ -117,6 +117,32 @@ class HolidayViewSet(viewsets.ModelViewSet):
             "data": serializer.data
         })
     
+    @action(detail=False, methods=['post'], url_path='bulk-create')
+    def bulk_create(self, request):
+        if not isinstance(request.data, list):
+            return Response(
+                {"detail": "Send a JSON array of holidays."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        serializer = HolidaySerializer(data=request.data, many=True)
+        serializer.is_valid(raise_exception=True)
+
+        created = []
+        
+        for item in serializer.validated_data:
+                obj = Holiday.objects.create(
+                    **item,
+                    created_by=request.user,
+                    updated_by=request.user,
+                )
+                created.append(obj)
+
+        return Response(
+            HolidaySerializer(created, many=True).data,
+            status=status.HTTP_201_CREATED
+        )
+    
     @action(detail=False, methods=['get'])
     def by_year(self, request):
         """Get holidays grouped by year"""
