@@ -227,6 +227,38 @@ class DeviceViewSet(viewsets.ModelViewSet):
     # EMPLOYEE SELF-SERVICE ENDPOINTS (All authenticated users)
     # ═══════════════════════════════════════════════════════════
 
+    @action(detail=False,methods=['post'],url_path='bulk-add')
+    def bulk_add_device(self,request,pk=None):
+        """
+        To add multiple devices
+        
+        POST /api/inventory/devices/bulk-add
+        """
+        if not isinstance(request.data, list):
+            return Response(
+                {"detail": "Send a JSON array of Inventory."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        # device = self.get_object()
+        user = request.user
+        
+        serializer = DeviceListSerializer(data=request.data,many=True)
+        serializer.is_valid(raise_exception=True)
+        
+        created =[]
+        
+        for item in serializer.validated_data:
+            obj = Device.objects.create(
+                **item,
+                created_by=user,
+                updated_by=user
+            )
+            created.append(obj)
+        
+        return Response(
+            DeviceListSerializer(created,many=True).data,
+            status=status.HTTP_201_CREATED
+        )     
 
     @swagger_auto_schema(
         operation_description="Submit a monthly inventory audit for an assigned device.",
