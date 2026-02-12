@@ -218,10 +218,13 @@ class DeviceViewSet(viewsets.ModelViewSet):
         serializer.save(updated_by=self.request.user)
 
     def perform_destroy(self, instance):
-        """Soft delete device"""
-        instance.is_active = False
-        instance.updated_by = self.request.user
-        instance.save()
+        """Hard delete device"""
+        # instance.is_active = False
+        # instance.updated_by = self.request.user
+        # instance.save()
+        
+        # hard delete
+        instance.delete()
 
     # ═══════════════════════════════════════════════════════════
     # EMPLOYEE SELF-SERVICE ENDPOINTS (All authenticated users)
@@ -254,7 +257,6 @@ class DeviceViewSet(viewsets.ModelViewSet):
                 updated_by=user
             )
             created.append(obj)
-        
         return Response(
             DeviceListSerializer(created,many=True).data,
             status=status.HTTP_201_CREATED
@@ -474,6 +476,46 @@ class DeviceViewSet(viewsets.ModelViewSet):
         }, status=200)
 
     
+    @action(detail=True, methods=['delete'], url_path='delete-document')
+    def delete_document(self, request, pk=None):
+        device = self.get_object()
+        doc_type = request.data.get('doc_type')
+        public_id = request.data.get('doc_type')
+        
+        if doc_type not in ['photo', 'warranty_doc', 'invoice_doc']:
+            return Response({"error": 1, "message": "Invalid doc_type"}, status=400)
+        
+        cloudinary.config(
+            cloud_name=os.getenv('CLOUDINARY_CLOUD_NAME'),
+            api_key=os.getenv('CLOUDINARY_API_KEY'),
+            api_secret=os.getenv('CLOUDINARY_API_SECRET'),
+        )
+        
+        result = cloudinary.uploader.destroy(
+            f"hrms/documents/{public_id}",
+            resource_type="image",
+            invalidate=True
+        )
+        
+        if result.get("result") not in ["ok", "not found"]:
+            return Response({
+                "error":1,
+                "message":"Failed to delete the image/file in cloudinary"
+                }, status=400)
+        
+        setattr(device, doc_type, None)
+        device.updated_by = request.user
+        device.save(update_fields=[doc_type, "updated_by", "updated_at"])
+        
+        return Response({
+            "error": 0,
+            "message": "Document uploaded successfully",
+            "data": {
+                "device_id": device.id,
+                "doc_type": doc_type,
+            }
+        }, status=200)
+       
     @action(detail=True, methods=['post'])
     def assign(self, request, pk=None):
         """
