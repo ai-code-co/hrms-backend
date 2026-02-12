@@ -7,7 +7,10 @@ from django.utils import timezone
 from django.db.models import Count, Q
 from drf_yasg.utils import swagger_auto_schema
 from drf_yasg import openapi
-
+from rest_framework.parsers import MultiPartParser, FormParser
+import cloudinary
+import cloudinary.uploader
+import os
 # Optional django-filter import
 try:
     from django_filters.rest_framework import DjangoFilterBackend
@@ -138,6 +141,8 @@ class DeviceViewSet(viewsets.ModelViewSet):
     queryset = Device.objects.all()
     permission_classes = [IsAuthenticated, IsAdminOrManagerOrOwner]
     filter_backends = [HierarchyFilterBackend, SearchFilter, OrderingFilter]
+    
+    
     if HAS_DJANGO_FILTER:
         filter_backends.insert(0, DjangoFilterBackend)
     filterset_fields = [
@@ -213,15 +218,49 @@ class DeviceViewSet(viewsets.ModelViewSet):
         serializer.save(updated_by=self.request.user)
 
     def perform_destroy(self, instance):
-        """Soft delete device"""
-        instance.is_active = False
-        instance.updated_by = self.request.user
-        instance.save()
+        """Hard delete device"""
+        # instance.is_active = False
+        # instance.updated_by = self.request.user
+        # instance.save()
+        
+        # hard delete
+        instance.delete()
 
     # ═══════════════════════════════════════════════════════════
     # EMPLOYEE SELF-SERVICE ENDPOINTS (All authenticated users)
     # ═══════════════════════════════════════════════════════════
 
+    @action(detail=False,methods=['post'],url_path='bulk-add')
+    def bulk_add_device(self,request,pk=None):
+        """
+        To add multiple devices
+        
+        POST /api/inventory/devices/bulk-add
+        """
+        if not isinstance(request.data, list):
+            return Response(
+                {"detail": "Send a JSON array of Inventory."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        # device = self.get_object()
+        user = request.user
+        
+        serializer = DeviceListSerializer(data=request.data,many=True)
+        serializer.is_valid(raise_exception=True)
+        
+        created =[]
+        
+        for item in serializer.validated_data:
+            obj = Device.objects.create(
+                **item,
+                created_by=user,
+                updated_by=user
+            )
+            created.append(obj)
+        return Response(
+            DeviceListSerializer(created,many=True).data,
+            status=status.HTTP_201_CREATED
+        )     
 
     @swagger_auto_schema(
         operation_description="Submit a monthly inventory audit for an assigned device.",
@@ -289,6 +328,7 @@ class DeviceViewSet(viewsets.ModelViewSet):
 
         # 4. Process Audit
         comment_text = serializer.validated_data['comment']
+        comment_type = serializer.validated_data.get('comment_type', 'all_good')
         condition = serializer.validated_data['condition']
         status_val = serializer.validated_data['status']
 
@@ -302,6 +342,7 @@ class DeviceViewSet(viewsets.ModelViewSet):
         audit_comment = DeviceComment.objects.create(
             device=device,
             employee=user.employee_profile,
+            comment_type=comment_type,
             comment=f"[Monthly Audit] {comment_text}"
         )
 
@@ -380,6 +421,101 @@ class DeviceViewSet(viewsets.ModelViewSet):
     # ADMIN/MANAGER/HR ONLY ENDPOINTS
     # ═══════════════════════════════════════════════════════════
 
+    @action(detail=True, methods=['post'], url_path='upload-document',parser_classes=[MultiPartParser, FormParser])
+    def upload_document(self, request, pk=None):
+        device = self.get_object()
+        file_obj = request.FILES.get('file')
+        doc_type = request.data.get('doc_type')  # photo / warranty_doc / invoice_doc
+
+        if not file_obj:
+            return Response({"error": 1, "message": "No file provided"}, status=400)
+
+        if doc_type not in ['photo', 'warranty_doc', 'invoice_doc']:
+            return Response({"error": 1, "message": "Invalid doc_type"}, status=400)
+
+        cloudinary.config(
+            cloud_name=os.getenv('CLOUDINARY_CLOUD_NAME'),
+            api_key=os.getenv('CLOUDINARY_API_KEY'),
+            api_secret=os.getenv('CLOUDINARY_API_SECRET'),
+        )
+
+        resource_type = "image" if (file_obj.content_type or "").startswith("image/") else "raw"
+        uploaded = cloudinary.uploader.upload(
+            file_obj,
+            folder=f"hrms/devices/{device.id}",
+            resource_type=resource_type,
+            original_filename=True
+        )
+
+        file_url = uploaded.get("secure_url")
+        if not file_url:
+            return Response({"error": 1, "message": "Upload failed"}, status=500)
+
+        # updates Device table field: photo / warranty_doc / invoice_doc
+        setattr(device, doc_type, file_url)
+        device.updated_by = request.user
+        device.save(update_fields=[doc_type, "updated_by", "updated_at"])
+
+        # sync only photo to EmployeeDocument 
+        # if device.employee and doc_type == "photo":
+        #     EmployeeDocument.objects.update_or_create(
+        #         employee=device.employee,
+        #         document_type="photo",
+        #         defaults={"document_url": file_url, "created_by": request.user}
+        #     )
+
+        return Response({
+            "error": 0,
+            "message": "Document uploaded successfully",
+            "data": {
+                "device_id": device.id,
+                "doc_type": doc_type,
+                "url": file_url,
+                "public_id": uploaded.get("public_id")
+            }
+        }, status=200)
+
+    
+    @action(detail=True, methods=['delete'], url_path='delete-document')
+    def delete_document(self, request, pk=None):
+        device = self.get_object()
+        doc_type = request.data.get('doc_type')
+        public_id = request.data.get('doc_type')
+        
+        if doc_type not in ['photo', 'warranty_doc', 'invoice_doc']:
+            return Response({"error": 1, "message": "Invalid doc_type"}, status=400)
+        
+        cloudinary.config(
+            cloud_name=os.getenv('CLOUDINARY_CLOUD_NAME'),
+            api_key=os.getenv('CLOUDINARY_API_KEY'),
+            api_secret=os.getenv('CLOUDINARY_API_SECRET'),
+        )
+        
+        result = cloudinary.uploader.destroy(
+            f"hrms/documents/{public_id}",
+            resource_type="image",
+            invalidate=True
+        )
+        
+        if result.get("result") not in ["ok", "not found"]:
+            return Response({
+                "error":1,
+                "message":"Failed to delete the image/file in cloudinary"
+                }, status=400)
+        
+        setattr(device, doc_type, None)
+        device.updated_by = request.user
+        device.save(update_fields=[doc_type, "updated_by", "updated_at"])
+        
+        return Response({
+            "error": 0,
+            "message": "Document uploaded successfully",
+            "data": {
+                "device_id": device.id,
+                "doc_type": doc_type,
+            }
+        }, status=200)
+       
     @action(detail=True, methods=['post'])
     def assign(self, request, pk=None):
         """
@@ -657,51 +793,183 @@ class InventoryDashboardViewSet(viewsets.ViewSet):
     def audit_summary(self, request):
         """
         Get summary of monthly audits for all assigned devices
-        GET /api/inventory/audit-summary/
+        GET /api/inventory/audit-summary/?month=1&year=2026
         """
+        import datetime
+        from django.db.models import Max
+        
+        # 1. Parse Month/Year
         now = timezone.now()
-        start_of_month = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+        try:
+            month = int(request.query_params.get('month', now.month))
+            year = int(request.query_params.get('year', now.year))
+            start_date = datetime.datetime(year, month, 1)
+            if month == 12:
+                end_date = datetime.datetime(year + 1, 1, 1)
+            else:
+                end_date = datetime.datetime(year, month + 1, 1)
+            
+            # Make timezone aware
+            start_date = timezone.make_aware(start_date)
+            end_date = timezone.make_aware(end_date)
+        except (ValueError, TypeError):
+            start_date = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+            end_date = (start_date + datetime.timedelta(days=32)).replace(day=1)
+            month = start_date.month
+            year = start_date.year
+
+        # 2. Base Querysets
+        all_active_devices = Device.objects.filter(is_active=True).select_related('device_type', 'employee')
         
-        # Get all assigned devices
-        assigned_devices = Device.objects.filter(
-            employee__isnull=False,
-            is_active=True
-        ).select_related('device_type', 'employee')
-        
-        # Get all audit comments for this month
-        audit_comments = DeviceComment.objects.filter(
-            created_at__gte=start_of_month,
+        # 3. Get Audits for the selected month
+        # We only care about the LATEST audit for a device in that month
+        # Since MySQL/TiDB doesn't support .distinct('field'), we filter in Python
+        all_audits = DeviceComment.objects.filter(
+            created_at__gte=start_date,
+            created_at__lt=end_date,
             comment__startswith='[Monthly Audit]'
-        ).values('device_id', 'created_at', 'comment')
+        ).order_by('-created_at').select_related('employee')
         
-        # Map device_id to audit info
-        audit_map = {a['device_id']: a for a in audit_comments}
+        audit_map = {}
+        for a in all_audits:
+            if a.device_id not in audit_map:
+                audit_map[a.device_id] = a
         
-        results = []
-        for device in assigned_devices:
+        # 4. Calculate Stats
+        total_inventories = all_active_devices.count()
+        unassigned_inventories = all_active_devices.filter(employee__isnull=True).count()
+        assigned_devices = all_active_devices.filter(employee__isnull=False)
+        
+        audit_done_count = len(audit_map)
+        audit_pending_count = max(0, assigned_devices.count() - audit_done_count)
+        
+        # Breakdown of audit types
+        audit_good = 0
+        audit_issue = 0
+        audit_critical_issue = 0
+        
+        for audit in audit_map.values():
+            if audit.comment_type == 'all_good':
+                audit_good += 1
+            elif audit.comment_type == 'issue':
+                audit_issue += 1
+            elif audit.comment_type == 'critical_issue':
+                audit_critical_issue += 1
+            else:
+                # Default to good if not specified
+                audit_good += 1
+
+        # 5. Build Audit List
+        audit_list = []
+        for device in all_active_devices:
             audit = audit_map.get(device.id)
-            results.append({
-                'device_id': device.id,
-                'serial_number': device.serial_number,
-                'device_type': device.device_type.name,
-                'employee_name': device.employee.get_full_name(),
-                'employee_id': device.employee.employee_id,
-                'is_audited': audit is not None,
-                'audit_date': audit['created_at'] if audit else None,
-                'audit_comment': audit['comment'] if audit else None,
-                'current_condition': device.get_condition_display(),
-                'current_status': device.get_status_display()
+            
+            # Map fields to match USER requested format
+            audit_list.append({
+                "id": str(device.id),
+                "machine_type": device.device_type.name,
+                "machine_name": device.brand or device.model_name or "Unknown",
+                "serial_number": device.serial_number or "",
+                "bill_number": device.notes[:20] if device.notes else "", # Placeholder mapping
+                "machine_id": str(device.id),
+                "assigned_user_id": str(device.employee.id) if device.employee else None,
+                "file_name": device.photo if device.photo else None,
+                "audit_id": str(audit.id) if audit else None,
+                "inventory_id": str(device.id),
+                "month": str(month),
+                "year": str(year),
+                "audit_done_by_user_id": str(audit.employee.id) if audit and audit.employee else None,
+                "comment_type": audit.comment_type if audit else None,
+                "comment": audit.comment.replace('[Monthly Audit] ', '') if audit else None,
+                "audit_done_by": audit.employee.get_full_name() if audit and audit.employee else None,
+                "assigned_to": device.employee.get_full_name() if device.employee else None,
+            })
+        employee_map = {}
+        for item in audit_list:
+            emp_name = item["assigned_to"] or "Unassigned"
+            if emp_name not in employee_map:
+                employee_map[emp_name] = []
+            employee_map[emp_name].append(item)
+            
+        audit_list_employee_wise = []
+        for emp_name, items in employee_map.items():
+            audit_list_employee_wise.append({
+                "employee_name": emp_name,
+                "items": items
+            })
+
+        return Response({
+            "error": 0,
+            "message": "Inventory Audit List",
+            "data": {
+                "stats": {
+                    "total_inventories": total_inventories,
+                    "audit_done": audit_done_count,
+                    "audit_pending": audit_pending_count,
+                    "unassigned_inventories": unassigned_inventories,
+                    "audit_good": audit_good,
+                    "audit_issue": audit_issue,
+                    "audit_critical_issue": audit_critical_issue
+                },
+                "audit_list": audit_list,
+                "audit_list_employee_wise": audit_list_employee_wise
+            }
+        })
+
+    @action(detail=False, methods=['get'], url_path='audit-history')
+    def audit_history(self, request):
+        """
+        Get historical audit performance for the last 6 months
+        GET /api/inventory/audit-history/
+        """
+        import datetime
+        now = timezone.now()
+        history = []
+        
+        for i in range(6):
+            # Calculate month and year
+            month_idx = now.month - i
+            year_idx = now.year
+            while month_idx <= 0:
+                month_idx += 12
+                year_idx -= 1
+            
+            start_date = timezone.make_aware(datetime.datetime(year_idx, month_idx, 1))
+            if month_idx == 12:
+                next_month = 1
+                next_year = year_idx + 1
+            else:
+                next_month = month_idx + 1
+                next_year = year_idx
+            
+            end_date = timezone.make_aware(datetime.datetime(next_year, next_month, 1))
+            
+            # Count active assignments during this period
+            assigned_count = DeviceAssignment.objects.filter(
+                Q(assigned_date__lt=end_date) & 
+                (Q(returned_date__isnull=True) | Q(returned_date__gt=start_date))
+            ).values('device_id').distinct().count()
+            
+            # Count audits done in this month
+            audit_count = DeviceComment.objects.filter(
+                created_at__gte=start_date,
+                created_at__lt=end_date,
+                comment__startswith='[Monthly Audit]'
+            ).values('device_id').distinct().count()
+            
+            history.append({
+                "month": start_date.strftime("%B"),
+                "year": str(year_idx),
+                "total_assigned": assigned_count,
+                "audited_count": audit_count,
+                "pending_count": max(0, assigned_count - audit_count),
+                "completion_rate": round((audit_count / assigned_count * 100), 1) if assigned_count > 0 else 0
             })
             
         return Response({
             "error": 0,
-            "data": {
-                "month": now.strftime('%B %Y'),
-                "total_assigned": assigned_devices.count(),
-                "audited_count": len(audit_map),
-                "pending_count": assigned_devices.count() - len(audit_map),
-                "details": results
-            }
+            "message": "Audit History (Last 6 Months)",
+            "data": history[::-1] # Chronological order
         })
 
     @swagger_auto_schema(

@@ -91,3 +91,72 @@ class ImageUploadView(APIView):
                 "success": False,
                 "error": f"Upload failed: {str(e)}"
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+class FileUploadView(APIView):
+    """
+    Generic file upload endpoint using Cloudinary.
+    POST /auth/upload-file/
+    
+    Upload any file (image, PDF, docx) and get a permanent public URL.
+    
+    Request: multipart/form-data with 'file' field
+    Response: { "success": true, "url": "...", "public_id": "...", "resource_type": "..." }
+    """
+    permission_classes = [permissions.IsAuthenticated]
+    parser_classes = [MultiPartParser, FormParser]
+    
+    def post(self, request):
+        """Upload file to Cloudinary and return permanent URL"""
+        file_obj = request.FILES.get('file')
+        
+        if not file_obj:
+            return Response(
+                {"success": False, "error": "No file provided"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Validate file size (max 20MB for docs)
+        max_size = 20 * 1024 * 1024
+        if file_obj.size > max_size:
+            return Response(
+                {"success": False, "error": "File too large. Maximum size is 20MB"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Determine resource type
+        content_type = file_obj.content_type
+        resource_type = "image" if content_type.startswith('image/') else "raw"
+        
+        try:
+            # Configure Cloudinary
+            cloudinary.config(
+                cloud_name=os.getenv('CLOUDINARY_CLOUD_NAME', 'dhlyvqdoi'),
+                api_key=os.getenv('CLOUDINARY_API_KEY', '857684152783841'),
+                api_secret=os.getenv('CLOUDINARY_API_SECRET', 'dcrgV5kMzlR42aoh9I6h1qzIG00')
+            )
+            
+            # Upload to Cloudinary
+            upload_result = cloudinary.uploader.upload(
+                file_obj,
+                folder="hrms/documents",
+                resource_type=resource_type,
+                original_filename=True
+            )
+            
+            return Response({
+                "success": True,
+                "message": "File uploaded successfully",
+                "url": upload_result.get('secure_url'),
+                "public_id": upload_result.get('public_id'),
+                "resource_type": resource_type,
+                "filename": file_obj.name,
+                "size": file_obj.size,
+                "content_type": content_type
+            }, status=status.HTTP_200_OK)
+            
+        except Exception as e:
+            return Response({
+                "success": False,
+                "error": f"Upload failed: {str(e)}"
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)

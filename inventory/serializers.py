@@ -47,7 +47,7 @@ class DeviceCommentSerializer(serializers.ModelSerializer):
         model = DeviceComment
         fields = [
             'id', 'device', 'employee', 'employee_name', 'employee_photo', 'photo_url',
-            'comment', 'created_at', 'formatted_date'
+            'comment_type', 'comment', 'created_at', 'formatted_date'
         ]
         read_only_fields = ['device', 'employee', 'created_at']
     
@@ -351,6 +351,7 @@ class DeviceUnassignSerializer(serializers.Serializer):
 
 class DeviceSubmitAuditSerializer(serializers.Serializer):
     comment = serializers.CharField(required=True, max_length=1000)
+    comment_type = serializers.ChoiceField(choices=DeviceComment.COMMENT_TYPE_CHOICES, required=False, default='all_good')
     condition = serializers.ChoiceField(choices=Device.CONDITION_CHOICES, required=True)
     status = serializers.ChoiceField(choices=Device.STATUS_CHOICES, required=True)
 
