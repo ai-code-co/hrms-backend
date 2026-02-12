@@ -8,8 +8,9 @@ from django.db.models import Count, Q
 from drf_yasg.utils import swagger_auto_schema
 from drf_yasg import openapi
 from rest_framework.parsers import MultiPartParser, FormParser
-
-
+import cloudinary
+import cloudinary.uploader
+import os
 # Optional django-filter import
 try:
     from django_filters.rest_framework import DjangoFilterBackend
