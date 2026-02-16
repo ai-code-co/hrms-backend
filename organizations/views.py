@@ -4,6 +4,8 @@ from rest_framework.response import Response
 from drf_yasg.utils import swagger_auto_schema
 from drf_yasg import openapi
 from rest_framework.permissions import IsAdminUser
+from rest_framework.permissions import IsAuthenticated
+from inventory.permissions import IsAdminManagerOrHR 
 
 from .models import Document
 from .serializers import DocumentSerializer
@@ -14,9 +16,10 @@ class DocumentViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAdminUser]
 
     def get_permissions(self):
-        # You can add custom permission logic here 
-        # (e.g., only staff can create/delete)
-        return super().get_permissions()
+       if self.action in ['create', 'update', 'destroy']:
+        return [IsAuthenticated(), IsAdminManagerOrHR()]
+       return [IsAuthenticated()]
+
 
     @swagger_auto_schema(
         operation_description="Create a new policy document",
