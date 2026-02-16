@@ -2,7 +2,14 @@ from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
 from .models import SalaryStructure, Payslip, PayrollConfig
-from .serializers import SalaryStructureSerializer, PayslipSerializer, PayslipSummarySerializer, SalaryOverviewSerializer, PayrollConfigSerializer
+from .serializers import (
+    SalaryStructureSerializer,
+    SalaryStructureAdminUpdateSerializer,
+    PayslipSerializer,
+    PayslipSummarySerializer,
+    SalaryOverviewSerializer,
+    PayrollConfigSerializer,
+)
 from .services import PayrollService
 from drf_yasg.utils import swagger_auto_schema
 from drf_yasg import openapi
@@ -101,7 +108,7 @@ class UserSalaryInfoView(APIView):
             if not can_access:
                 return Response({"error": 1, "message": "Permission denied"}, status=403)
 
-            employee = get_object_or_404(Employee, id=target_id)
+            employee = get_object_or_404(Employee, employee_id=target_id)
             all_payslips = Payslip.objects.filter(employee=employee).order_by('-year', '-month')
 
             if payslip_filters:
@@ -174,6 +181,90 @@ class UserSalaryInfoView(APIView):
         }
 
         return Response({"error": 0, "data": data})
+
+
+class SalaryStructureAdminUpdateView(APIView):
+    """
+    Admin/Superuser can update allowed salary structure fields.
+    """
+    permission_classes = [IsAuthenticated]
+
+    @swagger_auto_schema(
+        operation_description=(
+            "Update salary structure fields for an employee. "
+            "Path identifier can be SalaryStructure.id (e.g. 12) or Employee.employee_id (e.g. EMP8413). "
+            "Allowed only for admin/superuser."
+        ),
+        request_body=SalaryStructureAdminUpdateSerializer,
+        responses={200: openapi.Response("Salary structure updated successfully")}
+    )
+    def patch(self, request, identifier):
+        user = request.user
+        if not (user.is_staff or user.is_superuser):
+            return Response(
+                {"error": 1, "message": "Only admin/superuser can update salary structure"},
+                status=403
+            )
+
+        resolved_by = None
+        salary_structure = None
+        identifier_str = str(identifier).strip()
+
+        # If numeric, first try SalaryStructure primary key.
+        if identifier_str.isdigit():
+            salary_structure = SalaryStructure.objects.filter(id=int(identifier_str)).first()
+            if salary_structure:
+                resolved_by = "salary_structure_id"
+
+        # Fallback/alternate: treat identifier as Employee.employee_id (e.g. EMP8413).
+        if not salary_structure:
+            salary_structure = SalaryStructure.objects.filter(
+                employee__employee_id=identifier_str
+            ).order_by('-is_active', '-applicable_from', '-updated_at', '-id').first()
+            if salary_structure:
+                resolved_by = "employee_id"
+
+        if not salary_structure:
+            return Response(
+                {"error": 1, "message": "Salary structure not found for the provided identifier"},
+                status=404
+            )
+
+        serializer = SalaryStructureAdminUpdateSerializer(
+            salary_structure,
+            data=request.data,
+            partial=True
+        )
+
+        if not serializer.is_valid():
+            return Response(
+                {"error": 1, "message": "Validation failed", "errors": serializer.errors},
+                status=400
+            )
+
+        serializer.save(updated_by=user)
+        updated = serializer.instance
+
+        return Response(
+            {
+                "error": 0,
+                "message": "Salary structure updated successfully",
+                "data": {
+                    "id": updated.id,
+                    "resolved_by": resolved_by,
+                    "employee_id": updated.employee.employee_id,
+                    "basic_salary": str(updated.basic_salary),
+                    "hra": str(updated.hra),
+                    "medical_allowance": str(updated.medical_allowance),
+                    "conveyance_allowance": str(updated.conveyance_allowance),
+                    "special_allowance": str(updated.special_allowance),
+                    "epf": str(updated.epf),
+                    "tds": str(updated.tds),
+                    "is_active": updated.is_active,
+                }
+            },
+            status=200
+        )
 
 class GenericConfigurationView(APIView):
     """

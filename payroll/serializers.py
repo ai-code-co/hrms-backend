@@ -98,8 +98,22 @@ class SalaryStructureSerializer(serializers.ModelSerializer):
             "applicable_month": diff_months
         }
 
+class SalaryStructureAdminUpdateSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = SalaryStructure
+        fields = [
+            'basic_salary',
+            'hra',
+            'medical_allowance',
+            'conveyance_allowance',
+            'special_allowance',
+            'epf',
+            'tds',
+            'is_active',
+        ]
+
 class PayslipSerializer(serializers.ModelSerializer):
-    user_Id = serializers.CharField(source='employee.id')
+    user_Id = serializers.CharField(source='employee.employee_id')
     total_leave_taken = serializers.CharField(source='leaves_taken')
     leave_balance = serializers.CharField()
     allocated_leaves = serializers.CharField()
@@ -179,7 +193,7 @@ class PayslipSerializer(serializers.ModelSerializer):
         return [item for item in items if item["amount"] > 0]
 
 class SalaryOverviewSerializer(serializers.Serializer):
-    id = serializers.CharField(source='employee.id')
+    id = serializers.CharField(source='employee.employee_id')
     name = serializers.CharField(source='employee.get_full_name')
     email = serializers.EmailField(source='employee.email')
     date_of_joining = serializers.DateField(source='employee.joining_date')
