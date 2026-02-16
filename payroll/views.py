@@ -59,23 +59,25 @@ class UserSalaryInfoView(APIView):
         year = request.query_params.get('year')
         month_int = None
         year_int = None
+        payslip_filters = {}
 
-        if (month and not year) or (year and not month):
-            return Response(
-                {"error": 1, "message": "Both month and year are required together"},
-                status=400
-            )
-
-        if month and year:
+        if month is not None and month != "":
             try:
                 month_int = int(month)
+            except (TypeError, ValueError):
+                return Response({"error": 1, "message": "Month must be an integer between 1 and 12"}, status=400)
+            if month_int < 1 or month_int > 12:
+                return Response({"error": 1, "message": "Month must be between 1 and 12"}, status=400)
+            payslip_filters["month"] = month_int
+
+        if year is not None and year != "":
+            try:
                 year_int = int(year)
-                if month_int < 1 or month_int > 12:
-                    raise ValueError("Month must be between 1 and 12")
-                if year_int < 1:
-                    raise ValueError("Year must be a positive integer")
-            except ValueError as exc:
-                return Response({"error": 1, "message": str(exc)}, status=400)
+            except (TypeError, ValueError):
+                return Response({"error": 1, "message": "Year must be a positive integer"}, status=400)
+            if year_int < 1:
+                return Response({"error": 1, "message": "Year must be a positive integer"}, status=400)
+            payslip_filters["year"] = year_int
 
         # Specific employee mode
         if target_id:
@@ -102,8 +104,8 @@ class UserSalaryInfoView(APIView):
             employee = get_object_or_404(Employee, id=target_id)
             all_payslips = Payslip.objects.filter(employee=employee).order_by('-year', '-month')
 
-            if month_int and year_int:
-                selected_payslip = all_payslips.filter(month=month_int, year=year_int).first()
+            if payslip_filters:
+                selected_payslip = all_payslips.filter(**payslip_filters).first()
             else:
                 selected_payslip = all_payslips.first()
 
@@ -131,8 +133,8 @@ class UserSalaryInfoView(APIView):
         # All employees mode (admin/superuser)
         if user.is_staff or user.is_superuser:
             all_payslips = Payslip.objects.all().order_by('-year', '-month', 'employee_id')
-            if month_int and year_int:
-                all_payslips = all_payslips.filter(month=month_int, year=year_int)
+            if payslip_filters:
+                all_payslips = all_payslips.filter(**payslip_filters)
 
             data = {
                 "scope": "all_employees",
@@ -148,8 +150,8 @@ class UserSalaryInfoView(APIView):
         # Logged-in user's own salary
         employee = get_object_or_404(Employee, user=request.user)
         all_payslips = Payslip.objects.filter(employee=employee).order_by('-year', '-month')
-        if month_int and year_int:
-            selected_payslip = all_payslips.filter(month=month_int, year=year_int).first()
+        if payslip_filters:
+            selected_payslip = all_payslips.filter(**payslip_filters).first()
         else:
             selected_payslip = all_payslips.first()
 
