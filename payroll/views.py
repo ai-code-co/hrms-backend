@@ -108,7 +108,7 @@ class UserSalaryInfoView(APIView):
             if not can_access:
                 return Response({"error": 1, "message": "Permission denied"}, status=403)
 
-            employee = get_object_or_404(Employee, employee_id=target_id)
+            employee = get_object_or_404(Employee, id=target_id)
             all_payslips = Payslip.objects.filter(employee=employee).order_by('-year', '-month')
 
             if payslip_filters:
