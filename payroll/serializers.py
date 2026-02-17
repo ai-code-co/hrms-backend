@@ -113,7 +113,7 @@ class SalaryStructureAdminUpdateSerializer(serializers.ModelSerializer):
         ]
 
 class PayslipSerializer(serializers.ModelSerializer):
-    user_Id = serializers.CharField(source='employee.employee_id')
+    user_Id = serializers.CharField(source='employee.id')
     total_leave_taken = serializers.CharField(source='leaves_taken')
     leave_balance = serializers.CharField()
     allocated_leaves = serializers.CharField()
