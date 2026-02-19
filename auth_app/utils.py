@@ -60,9 +60,8 @@ def generate_password_setup_token(user):
 def verify_password_setup_token(token):
     """Validates password setup token and usage state."""
     try:
-        data = SETUP_SIGNER.unsign(token, max_age=SETUP_TOKEN_EXPIRY)
+        data = RESET_SIGNER.unsign(token, max_age=SETUP_TOKEN_EXPIRY)
         user_id, pwd_slice = data.split(":")
-        
         User = get_user_model()
         user = User.objects.get(id=user_id)
         
@@ -70,7 +69,7 @@ def verify_password_setup_token(token):
             return None
 
         return int(user_id)
-    except (signing.BadSignature, signing.SignatureExpired, ValueError, TypeError, get_user_model().DoesNotExist):
+    except (signing.SignatureExpired, ValueError, TypeError, get_user_model().DoesNotExist):
         return None
 
 # ------------------------------------------------------------------
