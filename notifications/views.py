@@ -68,8 +68,7 @@ class SlackInteractionsView(APIView):
         """ Handles Slack Event API (e.g. messages) """
         try:
             from .models import SlackConfiguration
-            
-            team_id = payload.get("team_id")
+            team_id = payload.get("team",{}).get("id")
             if not team_id:
                 logger.error("No team_id found in Slack event payload.")
                 return
