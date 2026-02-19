@@ -96,10 +96,11 @@ class HolidayViewSet(viewsets.ModelViewSet):
         serializer.save(updated_by=self.request.user)
     
     def perform_destroy(self, instance):
-        """Soft delete - set is_active=False instead of hard deleting"""
-        instance.is_active = False
-        instance.updated_by = self.request.user
-        instance.save()
+        # """Soft delete - set is_active=False instead of hard deleting"""
+        # instance.is_active = False
+        # instance.updated_by = self.request.user
+        # instance.save()
+        instance.delete()
     
     @action(detail=False, methods=['get'])
     def upcoming(self, request):
@@ -115,6 +116,32 @@ class HolidayViewSet(viewsets.ModelViewSet):
             "error": 0,
             "data": serializer.data
         })
+    
+    @action(detail=False, methods=['post'], url_path='bulk-create')
+    def bulk_create(self, request):
+        if not isinstance(request.data, list):
+            return Response(
+                {"detail": "Send a JSON array of holidays."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        serializer = HolidaySerializer(data=request.data, many=True)
+        serializer.is_valid(raise_exception=True)
+
+        created = []
+        
+        for item in serializer.validated_data:
+                obj = Holiday.objects.create(
+                    **item,
+                    created_by=request.user,
+                    updated_by=request.user,
+                )
+                created.append(obj)
+
+        return Response(
+            HolidaySerializer(created, many=True).data,
+            status=status.HTTP_201_CREATED
+        )
     
     @action(detail=False, methods=['get'])
     def by_year(self, request):

@@ -68,7 +68,6 @@ class SlackInteractionsView(APIView):
         """ Handles Slack Event API (e.g. messages) """
         try:
             from .models import SlackConfiguration
-            
             team_id = payload.get("team_id")
             if not team_id:
                 logger.error("No team_id found in Slack event payload.")
@@ -137,15 +136,19 @@ class SlackInteractionsView(APIView):
     def process_action(self, payload):
         try:
             from .models import SlackConfiguration
-            
+            print("payload 1139",payload)
             team_id = payload.get("team", {}).get("id")
+            print("temaiId",team_id)
             if not team_id:
                 logger.error("No team_id found in Slack payload.")
                 return
             
             try:
+                print("146")
                 config = SlackConfiguration.objects.get(slack_team_id=team_id)
+                print("config 148",config)
                 company = config.company
+                
             except SlackConfiguration.DoesNotExist:
                 logger.error(f"SlackConfiguration not found for team_id: {team_id}")
                 return

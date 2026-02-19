@@ -13,7 +13,7 @@ try:
 except ImportError:
     HAS_DJANGO_FILTER = False
 
-from .models import Employee, EmergencyContact, Education, WorkHistory
+from .models import Employee, EmergencyContact, Education, WorkHistory, EmployeeDocument
 from .serializers import (
     EmployeeListSerializer,
     EmployeeDetailSerializer,
@@ -25,6 +25,7 @@ from .serializers import (
     EmployeeSelfDetailSerializer,
     EmployeeManagerDetailSerializer,
     EmployeeLookupSerializer,
+    EmployeeDocumentSerializer,
 )
 
 from .permissions import EmployeeObjectPermission
@@ -468,6 +469,116 @@ class EmployeeViewSet(viewsets.ModelViewSet):
             return Response(serializer.data, status=status.HTTP_201_CREATED)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
+    @action(detail=True, methods=['post'], url_path='documents')
+    def add_document(self, request, pk=None):
+        """Add a document to employee"""
+        employee = self.get_object()
+        if not self._can_edit_employee(request, employee):
+            return Response(
+                {"detail": "You do not have permission to modify this employee."},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        
+        serializer = EmployeeDocumentSerializer(data=request.data)
+        if serializer.is_valid():
+            serializer.save(
+                employee=employee,
+                created_by=request.user
+            )
+            return Response(serializer.data, status=status.HTTP_201_CREATED)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+    @action(detail=True, methods=['delete'], url_path='documents/(?P<doc_id>[^/.]+)')
+    def delete_document(self, request, pk=None, doc_id=None):
+        """Delete an employee document"""
+        employee = self.get_object()
+        if not self._can_edit_employee(request, employee):
+            return Response(
+                {"detail": "You do not have permission to modify this employee profile."},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        
+        document = get_object_or_404(EmployeeDocument, pk=doc_id, employee=employee)
+        document_type = document.get_document_type_display()
+        document.delete()
+        
+        return Response({
+            "success": True,
+            "message": f"Document '{document_type}' deleted successfully."
+        }, status=status.HTTP_200_OK)
+
+    @action(detail=True, methods=['patch'], url_path='verify-document/(?P<doc_id>[^/.]+)')
+    def verify_document(self, request, pk=None, doc_id=None):
+        """Verify an employee document (Admin/HR only)"""
+        user = request.user
+        # Check if user is Admin/HR
+        is_admin_hr = user.is_superuser or user.is_staff
+        if not is_admin_hr and hasattr(user, 'employee_profile'):
+            if user.employee_profile.role and user.employee_profile.role.can_view_all_employees:
+                is_admin_hr = True
+        
+        if not is_admin_hr:
+            return Response({"error": 1, "message": "Permission denied. Only Admin/HR can verify documents."}, status=403)
+
+        document = get_object_or_404(EmployeeDocument, pk=doc_id, employee_id=pk)
+        
+        from django.utils import timezone
+        document.is_verified = request.data.get('is_verified', True)
+        if document.is_verified:
+            document.verified_at = timezone.now()
+            document.verified_by = user
+        else:
+            document.verified_at = None
+            document.verified_by = None
+        
+        document.save()
+        
+        return Response({
+            "success": True,
+            "message": f"Document {document.get_document_type_display()} verification status updated.",
+            "data": EmployeeDocumentSerializer(document).data
+        })
+
+    @action(detail=True, methods=['post'], url_path='terminate')
+    def terminate(self, request, pk=None):
+        """
+        Terminate an employee (SuperAdmin/HR only)
+        """
+        user = request.user
+        if not (user.is_superuser or user.is_staff):
+             return Response({"error": 1, "message": "Permission denied"}, status=status.HTTP_403_FORBIDDEN)
+             
+        employee = self.get_object()
+        
+        # Payload can include termination_date, reason, etc.
+        # But for now we just toggle status
+        employee.employment_status = 'terminated'
+        employee.is_active = False
+        employee.updated_by = user
+        employee.save()
+        
+        return Response({
+            "error": 0,
+            "message": f"Employee {employee.get_full_name()} has been terminated successfully."
+        })
+
+    @action(detail=False, methods=['get'], url_path='terminated-list')
+    def terminated_list(self, request):
+        """
+        Get all terminated employees (SuperAdmin/HR only)
+        """
+        user = request.user
+        if not (user.is_superuser or user.is_staff):
+             return Response({"error": 1, "message": "Permission denied"}, status=status.HTTP_403_FORBIDDEN)
+             
+        queryset = Employee.objects.filter(employment_status='terminated')
+        serializer = EmployeeListSerializer(queryset, many=True)
+        
+        return Response({
+            "error": 0,
+            "data": serializer.data
+        })
+
 
 class EmergencyContactViewSet(viewsets.ModelViewSet):
     """
@@ -502,3 +613,75 @@ class WorkHistoryViewSet(viewsets.ModelViewSet):
     serializer_class = WorkHistorySerializer
     permission_classes = [IsAuthenticated]
     http_method_names = ["get"]  # 🔒 LOCKED
+
+
+class EmployeeDocumentViewSet(viewsets.ModelViewSet):
+    """
+    ViewSet for Employee Documents.
+    Allows HR/Admin to list and filter all documents.
+    """
+    queryset = EmployeeDocument.objects.all()
+    serializer_class = EmployeeDocumentSerializer
+    permission_classes = [IsAuthenticated]
+    filter_backends = [SearchFilter, OrderingFilter]
+    if HAS_DJANGO_FILTER:
+        filter_backends.insert(0, DjangoFilterBackend)
+    filterset_fields = ['employee', 'document_type', 'is_verified'] if HAS_DJANGO_FILTER else []
+    search_fields = ['employee__first_name', 'employee__last_name', 'document_type']
+    
+    def get_queryset(self):
+        user = self.request.user
+        queryset = super().get_queryset()
+        employee_id = self.request.query_params.get("employee")
+        
+        # Admin/HR can see all
+        if user.is_superuser or user.is_staff:
+            if employee_id:
+                pass
+            else:
+                return queryset
+        
+        if employee_id:
+            return queryset.filter(employee_id=employee_id) 
+            
+        document_type = self.request.query_params.get("document_type")
+        if document_type:
+            return queryset.filter(document_type=document_type)
+
+        is_verified = self.request.query_params.get("is_verified")
+        if is_verified in ["true", "false"]:
+            return queryset.filter(is_verified=(is_verified == "true"))
+        
+        # if hasattr(user, 'employee_profile'):
+        #     emp = user.employee_profile
+    
+        #     # Role-based check
+        #     if emp.role and emp.role.can_view_all_employees:
+        #         return queryset
+            
+        #     # Regular employees only see their own docs
+        #     return queryset.filter(employee=emp)
+            
+        return queryset.none()
+
+    def perform_destroy(self, instance):
+        """Check permission before deleting"""
+        user = self.request.user
+        can_delete = False
+        
+        if user.is_superuser or user.is_staff:
+            can_delete = True
+        elif hasattr(user, 'employee_profile'):
+            emp = user.employee_profile
+            # Owner can delete their own documents
+            if instance.employee_id == emp.id:
+                can_delete = True
+            # Admin/HR role can delete
+            elif emp.role and emp.role.can_view_all_employees:
+                can_delete = True
+        
+        if not can_delete:
+            from rest_framework.exceptions import PermissionDenied
+            raise PermissionDenied("You do not have permission to delete this document.")
+        
+        instance.delete()

@@ -17,6 +17,9 @@ from .serializers import (
 )
 from django.db.models import Q, Sum
 import logging
+from employees.models import Employee
+from leaves.models import Leave
+
 
 logger = logging.getLogger(__name__)
 
@@ -392,11 +395,6 @@ class LeaveViewSet(viewsets.ModelViewSet):
             "data": balance_data
         })
 
-        return Response({
-            "error": 0,
-            "data": balance_data
-        })
-
     @action(detail=False, methods=['get'], url_path='pending-leaves')
     def pending_leaves(self, request):
         """
@@ -411,4 +409,75 @@ class LeaveViewSet(viewsets.ModelViewSet):
         return Response({
             "error": 0,
             "data": serializer.data
+        })
+    
+    @swagger_auto_schema(
+    operation_description="Get leave summary for all active employees",
+    responses={200: openapi.Response("Success")}    
+    )
+    @action(detail=False, methods=['get'], url_path='employee-leave-summary')
+    
+    def employee_leave_summary(self, request):
+        if not (request.user.is_superuser or request.user.is_staff):
+            return Response({"error": 1, "message": "Permission denied"}, status=status.HTTP_403_FORBIDDEN)
+
+        current_year = timezone.now().year
+
+        employees = Employee.objects.filter(is_active=True)
+
+        # Preload all quotas for the year (per employee, leave_type)
+        quotas = LeaveQuota.objects.filter(
+            employee__in=employees,
+            effective_from__year__lte=current_year
+        ).select_related('employee')
+
+        # Preload all leaves for the year (per employee, leave_type)
+        leaves = Leave.objects.filter(
+            employee__in=employees,
+            from_date__year=current_year
+        ).select_related('employee')
+
+        # maps
+        quota_map = {}
+        for q in quotas:
+            quota_map[(q.employee_id, q.leave_type)] = float(q.yearly_quota)
+
+        used_map = {}
+        pending_map = {}
+
+        for l in leaves:
+            key = (l.employee_id, l.leave_type)
+            if l.status == Leave.Status.APPROVED:
+                used_map[key] = used_map.get(key, 0) + float(l.no_of_days)
+            elif l.status == Leave.Status.PENDING:
+                pending_map[key] = pending_map.get(key, 0) + float(l.no_of_days)
+
+        summary = {}
+        for emp in employees:
+            summary[emp.id] = {
+                "employee_id": emp.id,
+                "employee_code": emp.employee_id,
+                "employee_name": emp.get_full_name(),
+                "leaves": {
+                    lt.value: {"pending": 0, "used": 0, "remaining": 0}
+                    for lt in Leave.LeaveType
+                }
+            }
+
+            for lt in Leave.LeaveType:
+                key = (emp.id, lt.value)
+                used = used_map.get(key, 0)
+                pending = pending_map.get(key, 0)
+                quota = quota_map.get(key, 0)
+                remaining = quota - used - pending
+
+                summary[emp.id]["leaves"][lt.value] = {
+                    "pending": pending,
+                    "used": used,
+                    "remaining": remaining
+                }
+
+        return Response({
+            "error": 0,
+            "data": list(summary.values())
         })
